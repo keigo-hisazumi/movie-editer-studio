@@ -1,0 +1,6 @@
+# ruff（Python の Lint）の設定。CI（.github/workflows/ci.yml）でも使う。
+# まずは構文エラーと pyflakes（未使用の import・未定義の名前など）だけを見る。
+target-version = "py312"
+
+[lint]
+select = ["E9", "F"]

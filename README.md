@@ -1,6 +1,18 @@
 # movie-editer-studio
 
-movie-editer（`shorts`）の AI が作ったカットと字幕を、Filmora を使わずに人がブラウザで直すためのローカル専用の画面です。ファイルの読み書きは Mac で動かす `shorts serve` の API に頼み、この画面は表示と操作だけを持ちます。
+movie-editer（`shorts`）の AI が作ったカットと字幕を、Filmora を使わずに人がフレーム単位で直す Mac・Windows のアプリです（Qt / PySide6）。ファイルの読み書きは movie-editer の `shorts serve` の API に頼み、このアプリは表示と操作だけを持ちます。
+
+## 入れ方
+
+GitHub の Actions の「Build」の成果物（Artifacts）から、Mac は `movie-editer-studio-mac`、Windows は `movie-editer-studio-windows` をダウンロードして展開します。署名していないので、初回は Mac なら右クリック ▸ 開く、Windows なら「詳細情報 ▸ 実行」で開きます。
+
+ソースから動かすとき（Python 3.12）：
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/python -m studio
+```
 
 ## 使い方
 
@@ -10,46 +22,35 @@ movie-editer（`shorts`）の AI が作ったカットと字幕を、Filmora を
    .venv/bin/python -m shorts proxy <動画パス>
    ```
 
-2. movie-editer で `serve` を起動したままにする（既定は `http://localhost:8765`）
-
-   ```bash
-   .venv/bin/python -m shorts serve
-   ```
-
-3. このリポジトリで画面を起動し、`http://localhost:5173/` を開く
-
-   ```bash
-   npm install
-   npm run dev
-   ```
-
-   `serve` を別のポートで動かすときは `STUDIO_SERVE=http://localhost:8800 npm run dev`。
-
+2. アプリを開き、つなぐ serve を設定する
+   - Mac（movie-editer と同じ PC）：「movie-editer のフォルダ」を選ぶ。serve が動いていなければアプリが起動し、アプリを閉じると止める（ターミナルで起動した serve はそのまま使う）
+   - Windows など別の PC：Mac で `.venv/bin/python -m shorts serve --lan` を起動し、そのとき出る URL（例 `http://<名前>.local:8765`）を「serve の URL」に入れる
+3. トピックをダブルクリックで開いて直し、保存する（`topic_XX/edit.json` の新しい版になる。前の版は `topic_XX/edits/` に残る。ほかで保存されていたら保存せずに知らせる）
 4. 直し終わったら movie-editer で Filmora・Premiere 用の XML と字幕を書き出す
 
    ```bash
    .venv/bin/python -m shorts export <動画パス> <トピックID>
    ```
 
-## カットの画面
+## 操作
 
-- 左は文字起こしの文の一覧。文をクリックすると、その文を残す・外すが切り替わる
-- 「ショート」はカット後の並びで再生（外した所は飛ばす）、「元動画」は元の録画のまま再生
-- `Space` 再生・停止、`←` `→` 1 フレーム（`Shift` で 10 フレーム）、`Tab` ショートと元動画の切り替え、`X` 選んだ文を残す・外す、`[` `]` いまの区間の頭・終わりをいまの位置に、`Ctrl`（`⌘`）+ `Z` 元に戻す、`Ctrl`（`⌘`）+ `S` 保存
-- 「保存」で `topic_XX/edit.json` に新しい版として保存する（前の版は `topic_XX/edits/` に残る）。ほかで保存されていたら保存せずに知らせる
+再生は「ショート」（外した所を飛ばす）と「元動画」（そのまま）の 2 通りです。
+
+- 共通：`Space` 再生・停止、`←` `→` 1 フレーム（`Shift` で 10 フレーム）、`Tab` ショートと元動画の切り替え、`Ctrl`（`⌘`）+ `Z` 取り消し、`Ctrl`（`⌘`）+ `S` 保存。波形の帯をクリックするとその位置へ動く
+- カットのタブ：文をクリックして `X`（か行の「外す」「戻す」）で残す・外す、`[` `]` でいまの区間の頭・終わりをいまの位置に
+- 字幕のタブ：文字はダブルクリックか打ち始めでその場で直す（9 文字を超えると文字数が色付きになる）。`I` `O` 選んだ字幕（無ければいま出ている字幕）の頭・終わりをいまの位置に、`/` いまの位置で分ける（文字は直していた欄のカーソルの位置、無ければ長さの比で分ける）、`N` いまの位置に 1 秒の字幕を足す、`Delete` 消す、「次とつなぐ」
+- 動画の上に、いま出ている字幕を重ねて出す（ショートの表示では外した所の字幕は出さない）
+- 字幕は元動画のフレームで持つので、あとでカットを直しても元の発話に付いたまま。字幕だけを直して保存した版は `step: captions`、カットも直した版は `step: cut`
+- 保存する前に movie-editer-schema の `EditDoc` の形を確かめる
+
+## 開発
+
+- `studio/timeline.py`：区間と字幕のフレームの計算（movie-editer の `shorts/edit.py` と同じ数え方）
+- `studio/editor.py`：編集の画面、`studio/app.py`：一覧と設定、`studio/api.py`：serve の API、`studio/server.py`：serve の起動、`studio/bars.py`：波形の帯
+- テスト：`QT_QPA_PLATFORM=offscreen STUDIO_NO_AUDIO=1 .venv/bin/python -m pytest`、Lint：`.venv/bin/python -m ruff check .`
+- `.github/workflows/build.yml` が Mac・Windows のアプリを書き出す（PyInstaller）
 
 ---
-
-## 字幕の画面
-
-右上の「字幕」に切り替えると、字幕を元動画のフレーム単位で直せます。字幕は元動画の時刻で持つので、あとでカットを直しても元の発話に付いたままです。
-
-- 一覧の字幕をクリックするとそこへ動く。文字はその場で直す（`Enter`・`Esc` で入力を終える）。9 文字を超えると文字数が色付きになる
-- `I` `O` 選んだ字幕（無ければいま出ている字幕）の頭・終わりをいまの位置に
-- `/` いまの位置で分ける（文字は、直していた欄のカーソルの位置で分ける。カーソルが無ければ長さの比で）
-- `N` いまの位置に 1 秒の字幕を足す、`Delete` 消す、「次とつなぐ」で次の字幕とつなぐ
-- 動画の上に、いま出ている字幕を重ねて出す（ショートの表示では外した所の字幕は出さない）
-- 字幕だけを直して保存した版は `step: captions`、カットも直した版は `step: cut` になる
 
 ## テンプレートについて
 

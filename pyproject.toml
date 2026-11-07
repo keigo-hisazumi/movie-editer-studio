@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "movie-editer-studio"
+version = "0.1.0"
+description = "movie-editer の AI が作ったカットと字幕を、人がフレーム単位で直す Mac・Windows のアプリ（Qt）"
+requires-python = ">=3.12"
+dependencies = [
+  "PySide6-Essentials>=6.8",
+  # edit.json の形（保存する前に検査する）。movie-editer と同じコミットに固定する
+  "movie-editer-schema @ git+https://github.com/keigo-hisazumi/movie-editer-schema@7809fb2cfe97c65c888f4a8f76e6f1fbdc715c2a",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+build = ["pyinstaller>=6.10"]
+
+[project.gui-scripts]
+movie-editer-studio = "studio.app:main"
+
+[tool.setuptools]
+packages = ["studio"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
