@@ -1,4 +1,46 @@
-# Template
+# movie-editer-studio
+
+movie-editer（`shorts`）の AI が作ったカット（と、のちに字幕）を、Filmora を使わずに人がブラウザで直すためのローカル専用の画面です。ファイルの読み書きは Mac で動かす `shorts serve` の API に頼み、この画面は表示と操作だけを持ちます。
+
+## 使い方
+
+1. movie-editer で確認用の動画と波形を作る（`prepare` でも作られる）
+
+   ```bash
+   .venv/bin/python -m shorts proxy <動画パス>
+   ```
+
+2. movie-editer で `serve` を起動したままにする（既定は `http://localhost:8765`）
+
+   ```bash
+   .venv/bin/python -m shorts serve
+   ```
+
+3. このリポジトリで画面を起動し、`http://localhost:5173/` を開く
+
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+   `serve` を別のポートで動かすときは `STUDIO_SERVE=http://localhost:8800 npm run dev`。
+
+4. 直し終わったら movie-editer で Filmora・Premiere 用の XML と字幕を書き出す
+
+   ```bash
+   .venv/bin/python -m shorts export <動画パス> <トピックID>
+   ```
+
+## カットの画面
+
+- 左は文字起こしの文の一覧。文をクリックすると、その文を残す・外すが切り替わる
+- 「ショート」はカット後の並びで再生（外した所は飛ばす）、「元動画」は元の録画のまま再生
+- `Space` 再生・停止、`←` `→` 1 フレーム（`Shift` で 10 フレーム）、`Tab` ショートと元動画の切り替え、`X` 選んだ文を残す・外す、`[` `]` いまの区間の頭・終わりをいまの位置に、`Ctrl`（`⌘`）+ `Z` 元に戻す、`Ctrl`（`⌘`）+ `S` 保存
+- 「保存」で `topic_XX/edit.json` に新しい版として保存する（前の版は `topic_XX/edits/` に残る）。ほかで保存されていたら保存せずに知らせる
+
+---
+
+## テンプレートについて
 
 このリポジトリは新しいプロジェクト用のテンプレートです。AI アシスタント向けの指示書、Issue / PR テンプレート、CI/CD の雛形、エディタ設定、各種ドット・ガバナンスファイルを含みます。
 
