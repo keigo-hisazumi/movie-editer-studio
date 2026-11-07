@@ -1,11 +1,11 @@
-// movie-editer-studio：カット（と、のちに字幕）を人が直す画面。ページは #/（一覧）と #/v/<動画名>/t/<トピックID>（カット）
+// movie-editer-studio：カットと字幕を人が直す画面。ページは #/（一覧）と #/v/<動画名>/t/<トピックID>（編集）
 import './style.css';
 import { api, ApiError, type VideoBrief } from './api';
-import { CutEditor } from './cut';
+import { Editor } from './editor';
 import { esc } from './format';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
-let current: CutEditor | null = null;
+let current: Editor | null = null;
 let shown = location.hash; // いま表示しているページ（移動を取り消したときに戻す）
 let ignoreNext = false;
 
@@ -61,7 +61,7 @@ async function route(): Promise<void> {
   try {
     const data = await api.topic(name, topic);
     const peaks = data.media['peaks.json'] ? await api.peaks(data.media['peaks.json']).catch(() => null) : null;
-    current = new CutEditor(app, name, topic, data, peaks);
+    current = new Editor(app, name, topic, data, peaks);
   } catch (e) {
     const msg = e instanceof ApiError ? e.message : String(e);
     app.innerHTML = `<header><a href="#/">← 一覧</a></header><main><p class="err">${esc(msg)}</p></main>`;

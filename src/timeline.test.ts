@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addCaption,
   addRange,
+  captionAt,
+  mergeCaptionNext,
+  moveCaptionEdge,
+  splitCaption,
   keptFrames,
   mergeAdjacent,
   moveEdge,
@@ -78,5 +83,49 @@ describe('区間の頭と終わりを動かす', () => {
   });
   it('頭を終わりより後ろにはできない', () => {
     expect(moveEdge(K, 0, 'start', 999)).toEqual([{ start: 359, end: 360 }, K[1]]);
+  });
+});
+
+describe('字幕', () => {
+  const caps = () => [
+    { start: 10, end: 20, text: 'あいうえ' },
+    { start: 20, end: 30, text: 'かき' },
+    { start: 50, end: 60, text: 'さ' },
+  ];
+
+  it('いまの位置の字幕', () => {
+    expect(captionAt(caps(), 19)).toBe(0);
+    expect(captionAt(caps(), 20)).toBe(1);
+    expect(captionAt(caps(), 40)).toBe(-1);
+  });
+
+  it('頭・終わりを動かす（1 フレームは残す・並び直す）', () => {
+    expect(moveCaptionEdge(caps(), 0, 'end', 5)[0]).toEqual({ start: 10, end: 11, text: 'あいうえ' });
+    const moved = moveCaptionEdge(caps(), 2, 'start', 0);
+    expect(moved.map((c) => c.text)).toEqual(['さ', 'あいうえ', 'かき']);
+    expect(moved[0]).toEqual({ start: 0, end: 60, text: 'さ' });
+  });
+
+  it('分ける（文字は指定の位置、無ければ長さの比）', () => {
+    expect(splitCaption(caps(), 0, 15, 1).slice(0, 2)).toEqual([
+      { start: 10, end: 15, text: 'あ' },
+      { start: 15, end: 20, text: 'いうえ' },
+    ]);
+    expect(splitCaption(caps(), 0, 15).slice(0, 2).map((c) => c.text)).toEqual(['あい', 'うえ']);
+    expect(splitCaption(caps(), 0, 10)).toEqual(caps()); // 頭では分けない
+  });
+
+  it('次とつなぐ', () => {
+    const m = mergeCaptionNext(caps(), 0);
+    expect(m).toHaveLength(2);
+    expect(m[0]).toEqual({ start: 10, end: 30, text: 'あいうえかき' });
+    expect(mergeCaptionNext(caps(), 2)).toEqual(caps());
+  });
+
+  it('足す（次の字幕の頭までに収める）', () => {
+    const r = addCaption(caps(), 40, 30, 'た');
+    expect(r.index).toBe(2);
+    expect(r.caps[2]).toEqual({ start: 40, end: 50, text: 'た' });
+    expect(addCaption(caps(), 70, 30).caps[3]).toEqual({ start: 70, end: 100, text: '' });
   });
 });

@@ -1,6 +1,6 @@
 // カットの区間（keeps）と字幕を扱う純粋な処理。movie-editer の shorts/edit.py と同じ数え方
 // フレーム番号は元動画のもの（fps は EditDoc.fps、30）。start は含み end は含まない。keeps の並び順がショートの順
-import type { FrameRange } from 'movie-editer-schema';
+import type { EditCaption, FrameRange } from 'movie-editer-schema';
 
 export type Keep = FrameRange;
 
@@ -112,4 +112,60 @@ export function moveEdge(keeps: Keep[], i: number, edge: 'start' | 'end', to: nu
   return mergeAdjacent(
     out.flatMap((x, j) => (j === i ? [x] : removeRange([x], k))),
   );
+}
+
+// ------------------------------------------------------------ 字幕（元動画のフレームで持つ。並びは元動画の順）
+
+export type Caption = EditCaption;
+
+/** 元動画の順に並べる */
+export function sortCaptions(caps: Caption[]): Caption[] {
+  return [...caps].sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+/** 元動画のフレーム f に出ている字幕の番号（無ければ -1。重なっていれば後に始まったもの） */
+export function captionAt(caps: Caption[], f: number): number {
+  let hit = -1;
+  caps.forEach((c, i) => {
+    if (c.start <= f && f < c.end && (hit < 0 || c.start >= caps[hit].start)) hit = i;
+  });
+  return hit;
+}
+
+/** 字幕 i の頭・終わりを to にする（1 フレーム以上は残す） */
+export function moveCaptionEdge(caps: Caption[], i: number, edge: 'start' | 'end', to: number): Caption[] {
+  const c = caps[i];
+  const next =
+    edge === 'start' ? { ...c, start: Math.min(Math.max(0, to), c.end - 1) } : { ...c, end: Math.max(to, c.start + 1) };
+  return sortCaptions(caps.map((x, j) => (j === i ? next : x)));
+}
+
+/** 字幕 i をフレーム at（含む方が後ろ）で2つに分ける。文字は pos 文字目で分ける（省けば長さの比で） */
+export function splitCaption(caps: Caption[], i: number, at: number, pos?: number): Caption[] {
+  const c = caps[i];
+  if (at <= c.start || at >= c.end) return caps;
+  const chars = [...c.text];
+  const p = Math.max(0, Math.min(chars.length, pos ?? Math.round((chars.length * (at - c.start)) / (c.end - c.start))));
+  const a = { ...c, end: at, text: chars.slice(0, p).join('').trim() };
+  const b = { ...c, start: at, text: chars.slice(p).join('').trim() };
+  return sortCaptions([...caps.slice(0, i), a, b, ...caps.slice(i + 1)]);
+}
+
+/** 字幕 i を、元動画の順で次の字幕とつなぐ */
+export function mergeCaptionNext(caps: Caption[], i: number): Caption[] {
+  const s = sortCaptions(caps);
+  const j = s.indexOf(caps[i]);
+  const a = s[j];
+  const b = s[j + 1];
+  if (!a || !b) return caps;
+  const m = { ...a, end: Math.max(a.end, b.end), text: a.text + b.text };
+  return [...s.slice(0, j), m, ...s.slice(j + 2)];
+}
+
+/** フレーム at から len フレームの字幕を足す（次の字幕の頭より後ろには伸ばさない）。足した字幕の番号も返す */
+export function addCaption(caps: Caption[], at: number, len: number, text = ''): { caps: Caption[]; index: number } {
+  const nextStart = Math.min(...caps.filter((c) => c.start > at).map((c) => c.start), Infinity);
+  const c = { start: at, end: Math.max(at + 1, Math.min(at + len, nextStart)), text };
+  const out = sortCaptions([...caps, c]);
+  return { caps: out, index: out.indexOf(c) };
 }
