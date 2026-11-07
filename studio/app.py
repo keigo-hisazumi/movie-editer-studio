@@ -216,24 +216,11 @@ class MainWindow(QMainWindow):
         e.accept()
 
 
-def self_check() -> int:
-    """書き出したアプリの確かめ（CI）：Qt の動画と、edit.json の検査が使えるか"""
-    from PySide6.QtMultimedia import QMediaPlayer
-
-    from .editor import validate
-
-    app = QApplication(sys.argv)
-    QMediaPlayer()
-    errs = validate({"format": 1})
-    if sys.stdout:  # Windows の画面のあるアプリには標準出力が無い
-        print("self-check:", "ok" if errs else "edit.json の検査が動いていません", flush=True)
-    app.quit()
-    return 0 if errs else 1
-
-
 def main() -> int:
     if "--self-check" in sys.argv:
-        return self_check()
+        from .selfcheck import run
+
+        return run(sys.argv)
     app = QApplication(sys.argv)
     app.setApplicationName("movie-editer studio")
     win = MainWindow()

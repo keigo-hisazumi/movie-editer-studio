@@ -66,9 +66,9 @@ def test_captions(qapp):
     assert len(e.captions) == 3
     e.caps.item(1, 1).setText("待ってよ")  # 文字を直す
     assert e.captions[1]["text"] == "待ってよ" and e.caps.item(1, 2).text() == "4"
-    assert e.view.sub.toPlainText() == ""  # 340 には字幕が無い
+    assert e.view.text == ""  # 340 には字幕が無い
     e.seek(315)
-    assert e.view.sub.toPlainText() == "待ってよ"
+    assert e.view.text == "待ってよ"
     e.destroy_editor()
 
 

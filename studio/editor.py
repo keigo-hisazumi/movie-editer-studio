@@ -17,17 +17,25 @@ import copy
 import os
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QSizeF, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QKeyEvent, QKeySequence, QShortcut
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtMultimediaWidgets import QGraphicsVideoItem
+from PySide6.QtCore import QElapsedTimer, QEvent, QObject, QPointF, QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QImage,
+    QKeyEvent,
+    QKeySequence,
+    QPainter,
+    QPainterPath,
+    QPaintEvent,
+    QPen,
+    QShortcut,
+)
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame, QVideoSink
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QGraphicsDropShadowEffect,
-    QGraphicsScene,
-    QGraphicsTextItem,
-    QGraphicsView,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -35,6 +43,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStyledItemDelegate,
     QTableWidget,
@@ -53,6 +62,7 @@ ZOOM_SEC = 12  # 拡大した帯に出す長さ（秒）
 MAX_CHARS = 9  # 字幕 1 行の文字数の目安（movie-editer の subtitle.max_chars_per_line）
 NEW_CAPTION_SEC = 1  # 足す字幕の長さ（秒）
 TICK_MS = 15  # 再生中に位置を見る間隔
+SEEK_WAIT_MS = 300  # 区間の頭へ飛んだ後、位置が届くのを待つ長さ
 
 
 def validate(doc: dict[str, Any]) -> list[str]:
@@ -64,46 +74,70 @@ def validate(doc: dict[str, Any]) -> list[str]:
     return errors("EditDoc", doc)
 
 
-class VideoView(QGraphicsView):
-    """動画と、その上に重ねる字幕"""
+class VideoView(QWidget):
+    """動画と、その上に重ねる字幕・知らせ。
+
+    動画の1コマずつを QVideoSink で受け取り、自分で描く（Mac・Windows・Linux で同じ描き方にする。
+    QVideoWidget・QGraphicsVideoItem は OS ごとに描き方が違い、映像が出ないことがある）。
+    """
 
     def __init__(self) -> None:
         super().__init__()
-        self.setScene(QGraphicsScene(self))
-        self.setStyleSheet("background: #000; border: 0; border-radius: 6px;")
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.item = QGraphicsVideoItem()
-        self.scene().addItem(self.item)
-        self.sub = QGraphicsTextItem()
-        self.sub.setDefaultTextColor(QColor("#fff"))
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(6)
-        shadow.setOffset(0, 0)
-        shadow.setColor(QColor("#000"))
-        self.sub.setGraphicsEffect(shadow)
-        self.scene().addItem(self.sub)
+        self.sink = QVideoSink(self)
+        self.sink.videoFrameChanged.connect(self._frame)
+        self.image: QImage | None = None
+        self.text = ""  # 字幕
+        self.message = ""  # 動画が無い・再生できないときの知らせ
         self.setMinimumWidth(240)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def _frame(self, frame: QVideoFrame) -> None:
+        if frame.isValid():
+            img = frame.toImage()
+            if not img.isNull():
+                self.image = img
+                self.update()
 
     def set_sub(self, text: str) -> None:
-        if self.sub.toPlainText() != text:
-            self.sub.setPlainText(text)
-            self._place()
+        if self.text != text:
+            self.text = text
+            self.update()
 
-    def resizeEvent(self, e) -> None:  # noqa: N802
-        super().resizeEvent(e)
-        self._place()
+    def set_message(self, text: str) -> None:
+        if self.message != text:
+            self.message = text
+            self.update()
 
-    def _place(self) -> None:
-        w, h = self.viewport().width(), self.viewport().height()
-        self.scene().setSceneRect(0, 0, w, h)
-        self.item.setSize(QSizeF(w, h))
-        f = QFont()
-        f.setBold(True)
-        f.setPointSizeF(max(12.0, h * 0.032))
-        self.sub.setFont(f)
-        r = self.sub.boundingRect()
-        self.sub.setPos((w - r.width()) / 2, h * 0.76 - r.height() / 2)
+    def paintEvent(self, e: QPaintEvent) -> None:  # noqa: N802
+        g = QPainter(self)
+        g.setRenderHint(QPainter.RenderHint.Antialiasing)
+        g.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        w, h = self.width(), self.height()
+        g.fillRect(0, 0, w, h, QColor("#000"))
+        area = QRectF(0, 0, w, h)
+        if self.image is not None:
+            iw, ih = self.image.width(), self.image.height()
+            scale = min(w / iw, h / ih)
+            area = QRectF((w - iw * scale) / 2, (h - ih * scale) / 2, iw * scale, ih * scale)
+            g.drawImage(area, self.image)
+        if self.text:
+            f = QFont()
+            f.setBold(True)
+            f.setPixelSize(max(14, round(area.height() * 0.045)))
+            path = QPainterPath()
+            fm = QFontMetricsF(f)
+            x = area.center().x() - fm.horizontalAdvance(self.text) / 2
+            y = area.top() + area.height() * 0.76 + fm.ascent() / 2
+            path.addText(QPointF(x, y), f, self.text)
+            g.setPen(QPen(QColor("#000"), max(3.0, f.pixelSize() / 6), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            g.drawPath(path)  # 縁取り
+            g.fillPath(path, QColor("#fff"))
+        if self.message:
+            g.setPen(QColor("#ddd"))
+            g.drawText(QRectF(12, 12, w - 24, h - 24), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                       self.message)
+        g.end()
 
 
 class CaretDelegate(QStyledItemDelegate):
@@ -141,6 +175,8 @@ class Editor(QWidget):
         self.playing = False
         self.play_keep = -1
         self.seek_target: int | None = None  # 区間の頭へ飛んでいる間（古い位置で次の区間へ進まないように）
+        self.seek_clock = QElapsedTimer()
+        self.seek_clock.start()
         self._filling = False
         self._build()
         self._load_media()
@@ -174,7 +210,8 @@ class Editor(QWidget):
         self.audio = None if os.environ.get("STUDIO_NO_AUDIO") else QAudioOutput(self)
         if self.audio:
             self.player.setAudioOutput(self.audio)
-        self.player.setVideoOutput(self.view.item)
+        self.player.setVideoOutput(self.view.sink)
+        self.player.errorOccurred.connect(self._on_error)
         self.player.positionChanged.connect(self._on_position)
         self.player.mediaStatusChanged.connect(self._on_status)
         self.play_btn = QPushButton("再生")
@@ -284,7 +321,7 @@ class Editor(QWidget):
         if url:
             self.player.setSource(QUrl(self.api.url(url)))
         else:
-            self.view.set_sub("確認用の動画がありません（Mac で shorts proxy を実行）")
+            self.view.set_message("確認用の動画がありません（Mac で shorts proxy を実行）")
 
     def destroy_editor(self) -> None:
         QApplication.instance().removeEventFilter(self)
@@ -399,6 +436,7 @@ class Editor(QWidget):
         self.src = max(0, round(f))
         if not from_playback:
             self.seek_target = self.src
+            self.seek_clock.restart()
             self.player.setPosition(int((self.src + 0.5) / self.fps * 1000))  # フレームの真ん中に合わせる
         self.update_pos()
 
@@ -408,7 +446,16 @@ class Editor(QWidget):
 
     def _on_status(self, status: QMediaPlayer.MediaStatus) -> None:
         if status == QMediaPlayer.MediaStatus.LoadedMedia:
+            self.view.set_message("")
             self.seek(self.src)
+        elif status == QMediaPlayer.MediaStatus.LoadingMedia:
+            self.view.set_message("動画を読み込んでいます…")
+        elif status == QMediaPlayer.MediaStatus.InvalidMedia:
+            self.view.set_message(f"動画を開けません：{self.player.errorString() or self.player.source().toString()}")
+
+    def _on_error(self, _err: QMediaPlayer.Error, msg: str) -> None:
+        self.view.set_message(f"動画を再生できません：{msg}\n{self.player.source().toString()}")
+        self.pause()
 
     def _on_position(self, ms: int) -> None:
         if self.seek_target is not None and abs(ms / 1000 * self.fps - self.seek_target) < 2:
@@ -451,8 +498,13 @@ class Editor(QWidget):
         self.update_pos()
 
     def _tick(self) -> None:
-        if not self.playing or self.seek_target is not None:
+        if not self.playing:
             return
+        if self.seek_target is not None:
+            # 飛んだ先の位置が届くのを待つ（届かない OS もあるので、少し待ったら進める）
+            if self.seek_clock.elapsed() < SEEK_WAIT_MS:
+                return
+            self.seek_target = None
         f = int(self.player.position() / 1000 * self.fps)
         cur = self.keeps[self.play_keep] if 0 <= self.play_keep < len(self.keeps) else None
         if self.mode == "short" and cur and f >= cur["end"]:

@@ -34,3 +34,12 @@ def test_local_port(tmp_path):
     assert local_port("http://localhost:9000/") == 9000
     assert local_port("http://mac.local:8765") is None  # ほかの PC の serve は起動しない
     assert venv_python(tmp_path).parent.parent == tmp_path / ".venv"
+
+
+def test_self_check_plays_sample(qapp):
+    from pathlib import Path
+
+    from studio.selfcheck import run
+
+    sample = Path(__file__).parent / "data" / "sample.mp4"
+    assert run(["x", "--self-check", str(sample)]) == 0

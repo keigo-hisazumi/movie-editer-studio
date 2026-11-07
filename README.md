@@ -42,6 +42,7 @@ python3.12 -m venv .venv
 - 動画の上に、いま出ている字幕を重ねて出す（ショートの表示では外した所の字幕は出さない）
 - 字幕は元動画のフレームで持つので、あとでカットを直しても元の発話に付いたまま。字幕だけを直して保存した版は `step: captions`、カットも直した版は `step: cut`
 - 保存する前に movie-editer-schema の `EditDoc` の形を確かめる
+- 動画を開けない・再生できないときは、動画の所に理由を出す。アプリだけで再生できるかは、ターミナルで `"/Applications/movie-editer studio.app/Contents/MacOS/movie-editer studio" --self-check <確認用の動画>` を実行すると確かめられる（Windows は結果を同じフォルダの `self-check.log` に書く）
 
 ## 開発
 
