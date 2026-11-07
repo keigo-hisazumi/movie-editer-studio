@@ -92,7 +92,7 @@ movie-editer（`shorts`）の AI が作ったカット（と、のちに字幕�
 
 - `LICENSE` — MIT
 
-## 使い方
+## テンプレートの使い方
 
 1. このテンプレートから新しいリポジトリを作成（GitHub の **Use this template** ボタン、または clone）。
 2. `README.md` を `AGENTS.md` の「README の構成」に沿って書き換え、`CODEOWNERS`、`LICENSE` のプロジェクト名や著作権者を書き換える。
