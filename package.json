@@ -10,7 +10,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "movie-editer-schema": "github:keigo-hisazumi/movie-editer-schema#a823a0316391a607cc91a48429d7ee4a6a777416",
+    "movie-editer-schema": "github:keigo-hisazumi/movie-editer-schema#7809fb2cfe97c65c888f4a8f76e6f1fbdc715c2a",
     "typescript": "~6.0.3",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
