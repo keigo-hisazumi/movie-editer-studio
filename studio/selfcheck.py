@@ -3,8 +3,8 @@
     movie-editer-studio --self-check [動画のファイル]
 
 Qt の動画の部品が使えるか・edit.json の検査が動くかを見る。動画のファイルを渡すと、ファイルと HTTP（serve と同じ
-つなぎ方）の両方で実際に再生し、コマが届いて再生位置が進むかを見る。結果は標準出力（無ければ同じフォルダの
-self-check.log）に書き、だめなら終了コード 1。
+つなぎ方）の両方で実際に再生し、コマが届いて再生位置が進むかを見る。結果は self-check.log（いまのフォルダ）と、標準出力が
+あればそこにも書き、だめなら終了コード 1。
 """
 from __future__ import annotations
 
@@ -80,10 +80,13 @@ def run(argv: list[str]) -> int:
         ok &= r is None
     lines.append(f"self-check: {'ok' if ok else 'NG'}")
     text = "\n".join(lines)
-    if sys.stdout:
-        print(text, flush=True)
-    else:  # Windows の画面のあるアプリには標準出力が無い
-        Path("self-check.log").write_text(text + "\n", encoding="utf-8")
+    Path("self-check.log").write_text(text + "\n", encoding="utf-8")
+    if sys.stdout:  # Windows の画面のあるアプリには標準出力が無いことがあり、あっても UTF-8 とは限らない
+        try:
+            sys.stdout.buffer.write((text + "\n").encode("utf-8"))
+            sys.stdout.flush()
+        except (AttributeError, OSError):
+            pass
     app.quit()
     return 0 if ok else 1
 

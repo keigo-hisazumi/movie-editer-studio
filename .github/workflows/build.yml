@@ -42,9 +42,11 @@ jobs:
           --collect-data movie_editer_schema --paths . studio/__main__.py
       - name: 書き出したアプリの確かめ（Mac）
         if: runner.os == 'macOS'
+        timeout-minutes: 5
         run: '"dist/movie-editer studio.app/Contents/MacOS/movie-editer studio" --self-check tests/data/sample.mp4'
       - name: 書き出したアプリの確かめ（Windows）
         if: runner.os == 'Windows'
+        timeout-minutes: 5
         shell: bash
         run: |
           code=0
