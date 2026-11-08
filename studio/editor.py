@@ -199,7 +199,7 @@ class Editor(QWidget):
         cut = self.data.get("cut") or {}
         top = QHBoxLayout()
         back = QPushButton("← 一覧")
-        back.clicked.connect(self.back.emit)
+        back.clicked.connect(lambda: self.back.emit())
         title = QLabel(f"<b>{self.name} topic_{self.topic:02d}</b> {cut.get('title') or ''}")
         self.rev = QLabel()
         self.rev.setStyleSheet("color: gray;")
