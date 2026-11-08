@@ -43,3 +43,10 @@ def test_self_check_plays_sample(qapp):
 
     sample = Path(__file__).parent / "data" / "sample.mp4"
     assert run(["x", "--self-check", str(sample)]) == 0
+
+
+def test_url_non_ascii():
+    """日本語の動画名の URL も送れる形にする（serve は /media/<動画名>/... をそのまま返す）"""
+    api = Api("http://127.0.0.1:8765")
+    assert api.url("/media/朝配信/peaks.json") == "http://127.0.0.1:8765/media/%E6%9C%9D%E9%85%8D%E4%BF%A1/peaks.json"
+    assert api.url("/api/v/%E6%9C%9D/t/1") == "http://127.0.0.1:8765/api/v/%E6%9C%9D/t/1"

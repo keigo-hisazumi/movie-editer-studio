@@ -25,8 +25,13 @@ class Api:
         self.base = base.rstrip("/")
 
     def url(self, path: str) -> str:
-        """API が返す /media/... などの URL を、serve の URL 付きにする"""
-        return path if path.startswith(("http://", "https://")) else self.base + path
+        """API が返す /media/... などの URL を、serve の URL 付きにする。
+
+        serve は動画名（日本語のこともある）をそのまま URL に入れて返すので、ASCII 以外を %XX にする
+        （urllib は ASCII 以外の URL を送れない。すでに %XX のものはそのまま）
+        """
+        url = path if path.startswith(("http://", "https://")) else self.base + path
+        return quote(url, safe=":/?#[]@!$&'()*+,;=%~")
 
     def _call(self, path: str, method: str = "GET", body: Any = None, timeout: float = TIMEOUT) -> Any:
         data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
