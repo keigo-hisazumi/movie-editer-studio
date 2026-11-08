@@ -207,7 +207,7 @@ class Editor(QWidget):
         self.undo_btn.clicked.connect(self.do_undo)
         self.save_btn = QPushButton("保存")
         self.save_btn.setDefault(True)
-        self.save_btn.clicked.connect(self.save)
+        self.save_btn.clicked.connect(lambda: self.save())  # clicked は checked（bool）を渡すので、メモとして受けない
         for w in (back, title):
             top.addWidget(w)
         top.addStretch(1)
@@ -313,7 +313,7 @@ class Editor(QWidget):
         self.timer = QTimer(self)
         self.timer.setInterval(TICK_MS)
         self.timer.timeout.connect(self._tick)
-        QShortcut(QKeySequence.StandardKey.Save, self, self.save)
+        QShortcut(QKeySequence.StandardKey.Save, self, lambda: self.save())
         QShortcut(QKeySequence.StandardKey.Undo, self, self.do_undo)
         QApplication.instance().installEventFilter(self)
 

@@ -121,3 +121,17 @@ def test_zoom_wave_follows_keeps(qapp):
     # 波形が上の方まで届く所（区間の切れ目の線は除く）
     loud = [x for x in range(800) if img.pixelColor(x, 3).name() not in ("#e7e7e2", "#cfe3ff", "#2f6fdb")]
     assert loud and abs(loud[0] - 400) <= 2 and abs(loud[-1] - 419) <= 2
+
+
+def test_save_button(qapp, serve, monkeypatch):
+    """保存ボタンを押すと、メモを聞いてから保存する（clicked の bool をメモにしない）"""
+    from studio import editor as ed
+
+    base, fake = serve
+    e = make(qapp, base)
+    monkeypatch.setattr(ed.QInputDialog, "getText", lambda *a, **k: ("ボタンで保存", True))
+    e._click_seg(1, 0)
+    press(e, Qt.Key.Key_X)
+    e.save_btn.click()
+    assert fake.saved and fake.saved[0]["doc"]["note"] == "ボタンで保存"
+    e.destroy_editor()
