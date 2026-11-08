@@ -1,6 +1,7 @@
 """波形の帯：残す区間（色）・外した所（灰色）・波形・区間の切れ目・字幕・いまの位置を描く。クリックでその位置へ動く"""
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 
 from PySide6.QtCore import QRectF, Qt
@@ -52,10 +53,13 @@ class Bar(QWidget):
             g.fillRect(QRectF(self._x(k["start"]), 0, max(1.0, self._x(k["end"]) - self._x(k["start"])), wh), kept)
         if self.peaks:
             wave = QColor(240, 240, 240, 140) if dark else QColor(30, 30, 30, 140)
-            per = max(1.0, (self.b - self.a) / max(1, w))
+            # 1 ピクセルあたりのフレーム数。拡大した帯では 1 より小さい（1 に切り上げると、波形だけ区間・字幕と
+            # 違う速さで動いてずれる）
+            per = (self.b - self.a) / max(1, w)
             for px in range(w):
-                f0 = int(self.a + px * per)
-                m = max((self.peaks[f] for f in range(max(0, f0), min(len(self.peaks), f0 + int(per) + 1))), default=0)
+                f0 = math.floor(self.a + px * per)
+                f1 = max(f0 + 1, math.floor(self.a + (px + 1) * per))
+                m = max((self.peaks[f] for f in range(max(0, f0), min(len(self.peaks), f1))), default=0)
                 v = m / 255 * wh * 0.9
                 g.fillRect(QRectF(px, (wh - v) / 2, 1, max(1.0, v)), wave)
         edge = QColor("#6ea0ff" if dark else "#2f6fdb")
