@@ -43,6 +43,7 @@ python3.12 -m venv .venv
 - 字幕は元動画のフレームで持つので、あとでカットを直しても元の発話に付いたまま。字幕だけを直して保存した版は `step: captions`、カットも直した版は `step: cut`
 - 保存する前に movie-editer-schema の `EditDoc` の形を確かめる
 - 動画を開けない・再生できないときは、動画の所に理由を出す。アプリだけで再生できるかは、ターミナルで `"/Applications/movie-editer studio.app/Contents/MacOS/movie-editer studio" --self-check <確認用の動画>` を実行すると確かめられる（結果はいまのフォルダの `self-check.log` にも書く）
+- 一覧からトピックを開けないなど思わぬエラーは、理由を画面に出し、記録にも書く（Mac は `~/Library/Logs/movie-editer studio.log`、Windows は `%LOCALAPPDATA%\movie-editer\movie-editer studio\movie-editer studio.log` あたり。画面に場所が出る）
 
 ## 開発
 

@@ -63,6 +63,7 @@ MAX_CHARS = 9  # 字幕 1 行の文字数の目安（movie-editer の subtitle.m
 NEW_CAPTION_SEC = 1  # 足す字幕の長さ（秒）
 TICK_MS = 15  # 再生中に位置を見る間隔
 SEEK_WAIT_MS = 300  # 区間の頭へ飛んだ後、位置が届くのを待つ長さ
+PEEK_MS = 1500  # 止めている間に飛んだとき、その位置のコマが届くのを待つ長さ
 
 
 def validate(doc: dict[str, Any]) -> list[str]:
@@ -75,6 +76,8 @@ def validate(doc: dict[str, Any]) -> list[str]:
 
 
 class VideoView(QWidget):
+    shown = Signal(float)  # コマが届いた（その時刻、秒）
+
     """動画と、その上に重ねる字幕・知らせ。
 
     動画の1コマずつを QVideoSink で受け取り、自分で描く（Mac・Windows・Linux で同じ描き方にする。
@@ -97,6 +100,7 @@ class VideoView(QWidget):
             if not img.isNull():
                 self.image = img
                 self.update()
+                self.shown.emit(frame.startTime() / 1e6 if frame.startTime() >= 0 else -1.0)
 
     def set_sub(self, text: str) -> None:
         if self.text != text:
@@ -177,6 +181,13 @@ class Editor(QWidget):
         self.seek_target: int | None = None  # 区間の頭へ飛んでいる間（古い位置で次の区間へ進まないように）
         self.seek_clock = QElapsedTimer()
         self.seek_clock.start()
+        # 止めている間に飛んだときは、音を消して少しだけ再生し、その位置のコマが届いたら止める
+        # （QMediaPlayer は止めている間に位置を変えてもコマを出さない OS があり、プレビューが黒いままになる）
+        self.peeking = False
+        self.loaded = False  # 動画を読み込んだか
+        self.peek_timer = QTimer(self)
+        self.peek_timer.setSingleShot(True)
+        self.peek_timer.timeout.connect(self._end_peek)
         self._filling = False
         self._build()
         self._load_media()
@@ -211,6 +222,7 @@ class Editor(QWidget):
         if self.audio:
             self.player.setAudioOutput(self.audio)
         self.player.setVideoOutput(self.view.sink)
+        self.view.shown.connect(self._on_shown)
         self.player.errorOccurred.connect(self._on_error)
         self.player.positionChanged.connect(self._on_position)
         self.player.mediaStatusChanged.connect(self._on_status)
@@ -325,6 +337,8 @@ class Editor(QWidget):
 
     def destroy_editor(self) -> None:
         QApplication.instance().removeEventFilter(self)
+        self.peeking = False
+        self.peek_timer.stop()
         self.pause()
         self.player.stop()
         self.player.setSource(QUrl())
@@ -438,7 +452,39 @@ class Editor(QWidget):
             self.seek_target = self.src
             self.seek_clock.restart()
             self.player.setPosition(int((self.src + 0.5) / self.fps * 1000))  # フレームの真ん中に合わせる
+            if not self.playing:
+                self._peek()
         self.update_pos()
+
+    def _peek(self) -> None:
+        if self.player.source().isEmpty() or self.player.mediaStatus() in (
+                QMediaPlayer.MediaStatus.NoMedia, QMediaPlayer.MediaStatus.LoadingMedia,
+                QMediaPlayer.MediaStatus.InvalidMedia):
+            return
+        self.peeking = True
+        if self.audio:
+            self.audio.setMuted(True)
+        self.player.play()
+        self.peek_timer.start(PEEK_MS)
+
+    def _on_shown(self, sec: float) -> None:
+        if not self.peeking:
+            return
+        # 飛ぶ前のコマが届くことがあるので、飛んだ先の近くのコマを待つ（時刻が無ければそのまま止める）
+        if sec >= 0 and abs(sec * self.fps - self.src) > 3:
+            return
+        self._end_peek()
+
+    def _end_peek(self) -> None:
+        self.peek_timer.stop()
+        if not self.peeking:
+            return
+        self.peeking = False
+        if not self.playing:
+            self.player.pause()
+            self.player.setPosition(int((self.src + 0.5) / self.fps * 1000))
+        if self.audio:
+            self.audio.setMuted(False)
 
     def seek_click(self, f: float) -> None:
         self.pause()
@@ -446,8 +492,11 @@ class Editor(QWidget):
 
     def _on_status(self, status: QMediaPlayer.MediaStatus) -> None:
         if status == QMediaPlayer.MediaStatus.LoadedMedia:
-            self.view.set_message("")
-            self.seek(self.src)
+            # 止めた・位置を変えたときにも LoadedMedia に戻る OS があるので、最初の1回だけ頭へ合わせる
+            if not self.loaded:
+                self.loaded = True
+                self.view.set_message("")
+                self.seek(self.src)
         elif status == QMediaPlayer.MediaStatus.LoadingMedia:
             self.view.set_message("動画を読み込んでいます…")
         elif status == QMediaPlayer.MediaStatus.InvalidMedia:
@@ -492,6 +541,10 @@ class Editor(QWidget):
         if self.mode == "short" and tl.keep_index_at(self.keeps, self.src) < 0:
             self.seek(tl.out_to_src(self.keeps, self._nearest_out()))
         self.playing = True
+        self.peeking = False
+        self.peek_timer.stop()
+        if self.audio:
+            self.audio.setMuted(False)
         self.play_keep = tl.keep_index_at(self.keeps, self.src)
         self.player.play()
         self.timer.start()

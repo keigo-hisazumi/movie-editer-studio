@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import sys
 import time
+import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QSettings, QStandardPaths, Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -34,6 +35,38 @@ from .editor import Editor
 from .server import ServeProcess, local_port
 
 DEFAULT_URL = "http://127.0.0.1:8765"
+
+
+def log_path() -> Path:
+    """思わぬエラーを書く記録（Mac は ~/Library/Logs/movie-editer studio.log、Windows は AppData の中）"""
+    if sys.platform == "darwin":
+        d = Path.home() / "Library" / "Logs"
+    else:
+        d = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation)
+                 or Path.home())
+    return d / "movie-editer studio.log"
+
+
+def report(title: str, exc: BaseException, parent: QWidget | None = None) -> str:
+    """思わぬエラーを記録に書き、画面に出す（Qt の中で起きた例外は、そのままでは何も出ずに消える）"""
+    text = "".join(traceback.format_exception(exc))
+    path = log_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} {title}\n{text}\n")
+    except OSError:
+        pass
+    if QApplication.instance() is not None:
+        box = QMessageBox(QMessageBox.Icon.Critical, title,
+                          f"{type(exc).__name__}: {exc}\n\n記録：{path}", parent=parent)
+        box.setDetailedText(text)
+        box.exec()
+    return text
+
+
+def _excepthook(kind, exc, tb) -> None:
+    report("エラーが起きました", exc.with_traceback(tb))
 
 
 class Home(QWidget):
@@ -173,10 +206,19 @@ class MainWindow(QMainWindow):
         except ApiError as e:
             QMessageBox.warning(self, "開けません", str(e))
             return
+        except Exception as e:  # noqa: BLE001  serve の返事が思っていた形でないなど
+            QApplication.restoreOverrideCursor()
+            report(f"{name} topic_{topic:02d} を開けません", e, self)
+            return
         finally:
             QApplication.restoreOverrideCursor()
         self.close_editor()
-        self.editor = Editor(self.api, name, topic, data, peaks)
+        try:
+            self.editor = Editor(self.api, name, topic, data, peaks)
+        except Exception as e:  # noqa: BLE001
+            self.editor = None
+            report(f"{name} topic_{topic:02d} を開けません", e, self)
+            return
         self.editor.back.connect(self.go_home)
         self.stack.addWidget(self.editor)
         self.stack.setCurrentWidget(self.editor)
@@ -221,6 +263,7 @@ def main() -> int:
         from .selfcheck import run
 
         return run(sys.argv)
+    sys.excepthook = _excepthook
     app = QApplication(sys.argv)
     app.setApplicationName("movie-editer studio")
     win = MainWindow()
