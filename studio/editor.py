@@ -342,6 +342,11 @@ class Editor(QWidget):
         self.timer.timeout.connect(self._tick)
         QShortcut(QKeySequence.StandardKey.Save, self, lambda: self.save())
         QShortcut(QKeySequence.StandardKey.Undo, self, self.do_undo)
+        # 日本語入力がオンのとき、入力を受け付ける部品にはキーが「変換中の文字」として届き、Space（変換）や
+        # T・R が効かない。文字を入力する所（字幕の文字を直す入力欄）以外は、日本語入力を使わない
+        for w in (self, self.caps, self.caps.viewport(), self.segs, self.segs.viewport(), self.timeline,
+                  self.timeline.canvas, self.view, self.tabs):
+            w.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, False)
         QApplication.instance().installEventFilter(self)
 
     def _table(self, t: QTableWidget, stretch: int) -> None:
@@ -386,7 +391,7 @@ class Editor(QWidget):
         k = self.keeps
         self.rev.setText(f"版 {self.base}{'（未保存の変更あり）' if self.dirty else ''}")
         self.mode_btn.setText("表示：ショート" if self.mode == "short" else "表示：元動画")
-        common = "Space 再生／← → 1 フレーム（Shift で 10）／Tab ショート・元動画／"
+        common = "Space 再生・停止／← → 1 フレーム（Shift で 10）／T R 拡大・縮小／Tab ショート・元動画／"
         self.help.setText(common + ("X 文を外す・戻す／[ ] いまの位置を区間の頭・終わりに" if self.panel == "cut"
                                     else "I O いまの位置を字幕の頭・終わりに／/ 分ける／N 足す／Delete 消す"))
         shown = sum(1 for c in self.captions if tl.kept_frames(k, c) > 0)
@@ -765,10 +770,18 @@ class Editor(QWidget):
     # ------------------------------------------------------------ キー
 
     def eventFilter(self, obj: QObject, e: QEvent) -> bool:  # noqa: N802
-        if e.type() != QEvent.Type.KeyPress or not self.isVisible() or not self.isActiveWindow():
+        t = e.type()
+        if t not in (QEvent.Type.KeyPress, QEvent.Type.InputMethod) or not self.isVisible() \
+                or not self.isActiveWindow():
             return False
         if isinstance(QApplication.focusWidget(), QLineEdit):
             return False  # 字幕の文字の入力中（Enter・Esc で入力を終える）
+        if t == QEvent.Type.InputMethod:
+            # 日本語入力から空白だけが確定して届いた（Space）：再生・停止にする
+            if e.commitString() in (" ", "\u3000") and not e.preeditString():
+                self.toggle()
+                return True
+            return False
         return self.key(e)
 
     def key(self, e: QKeyEvent) -> bool:
@@ -778,6 +791,8 @@ class Editor(QWidget):
             return False  # 保存・取り消しは QShortcut
         if k == Qt.Key.Key_Space:
             self.toggle()
+        elif k in (Qt.Key.Key_T, Qt.Key.Key_R) and not mods & Qt.KeyboardModifier.ShiftModifier:
+            self.timeline.zoom_by(1.25 if k == Qt.Key.Key_T else 0.8)
         elif k in (Qt.Key.Key_Right, Qt.Key.Key_Left):
             n = 10 if mods & Qt.KeyboardModifier.ShiftModifier else 1
             self.step(n if k == Qt.Key.Key_Right else -n)

@@ -116,3 +116,30 @@ def test_save_button(qapp, serve, monkeypatch):
     e.save_btn.click()
     assert fake.saved and fake.saved[0]["doc"]["note"] == "ボタンで保存"
     e.destroy_editor()
+
+
+def test_space_and_zoom_keys(qapp):
+    """Space は再生・停止、T で拡大・R で縮小。日本語入力から空白が届いても再生・停止"""
+    from PySide6.QtGui import QInputMethodEvent
+
+    e = make(qapp)
+    toggled = []
+    e.toggle = lambda: toggled.append(1)
+    press(e, Qt.Key.Key_Space)
+    assert toggled == [1]
+    e.set_mode("source")  # 拡大・縮小できる長さにする
+    e.timeline.set_ppf(4.0)
+    p = e.timeline.ppf
+    press(e, Qt.Key.Key_T)
+    assert e.timeline.ppf > p
+    press(e, Qt.Key.Key_R)
+    press(e, Qt.Key.Key_R)
+    assert e.timeline.ppf < p
+    ev = QInputMethodEvent()
+    ev.setCommitString("　")
+    e.activateWindow()
+    qapp.processEvents()
+    if e.isActiveWindow():  # 画面の無い環境では前に出せないことがある
+        assert e.eventFilter(e.caps, ev) and len(toggled) == 2
+    assert not e.caps.viewport().testAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled)
+    e.destroy_editor()

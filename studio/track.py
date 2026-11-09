@@ -4,7 +4,7 @@
 - ショートの表示：横軸はショートの時間（残す区間をつなげたもの）。区間の切れ目に縦の線
 - 元動画の表示：横軸は元動画の時間（トピックの区間）。外した所は暗く
 クリック・ドラッグでその位置へ動き、字幕をクリックするとその字幕を選ぶ。
-ホイールで横にスクロール、⌘（Ctrl）＋ホイール・下のつまみで拡大・縮小。
+ホイールで横にスクロール、⌘（Ctrl）＋ホイール・下のつまみ・T（拡大）R（縮小）で拡大・縮小。
 """
 from __future__ import annotations
 
@@ -270,9 +270,10 @@ class Canvas(QWidget):
     def wheelEvent(self, e: QWheelEvent) -> None:  # noqa: N802
         d = e.angleDelta()
         if e.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
-            self.o.zoom_by(1.25 if d.y() > 0 else 0.8, e.position().x())
+            # 向きは指定により一般のソフトと逆（奥へ回すと縮小）
+            self.o.zoom_by(0.8 if d.y() > 0 else 1.25, e.position().x())
         else:
-            step = d.x() if abs(d.x()) > abs(d.y()) else -d.y()
+            step = -d.x() if abs(d.x()) > abs(d.y()) else d.y()  # これも逆（奥へ回すと右へ）
             self.o.scroll_by(step / max(1e-6, self.o.ppf))
         e.accept()
 

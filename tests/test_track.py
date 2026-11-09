@@ -72,3 +72,26 @@ def test_wave_from_bottom(qapp):
     assert near_bottom.green() > 150 and near_top.green() > 150  # 大きい所は上まで届く
     assert quiet_top.green() < 150  # 静かな所の上は塗らない
     assert x > HEAD_W
+
+
+def test_wheel_reversed(qapp):
+    """ホイールの向きは一般のソフトと逆：奥へ回すと右へ・⌘（Ctrl）＋奥で縮小"""
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+
+    v = make(qapp)
+    v.set_ppf(12.0)
+    v.left = 5
+    v._sync_bar()
+
+    def wheel(dy, mods=Qt.KeyboardModifier.NoModifier):
+        ev = QWheelEvent(QPointF(400, 100), QPointF(400, 100), QPoint(0, 0), QPoint(0, dy),
+                         Qt.MouseButton.NoButton, mods, Qt.ScrollPhase.NoScrollPhase, False)
+        v.canvas.wheelEvent(ev)
+
+    left = v.left
+    wheel(120)
+    assert v.left > left
+    p = v.ppf
+    wheel(120, Qt.KeyboardModifier.ControlModifier)
+    assert v.ppf < p
