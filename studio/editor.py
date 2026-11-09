@@ -55,10 +55,10 @@ from PySide6.QtWidgets import (
 
 from . import timeline as tl
 from .api import Api, ApiError
-from .bars import Bar
 from .fmt import clock, frames
+from .track import TrackView, timecode
+from .track import caption_pieces as _pieces
 
-ZOOM_SEC = 12  # 拡大した帯に出す長さ（秒）
 MAX_CHARS = 9  # 字幕 1 行の文字数の目安（movie-editer の subtitle.max_chars_per_line）
 NEW_CAPTION_SEC = 1  # 足す字幕の長さ（秒）
 TICK_MS = 15  # 再生中に位置を見る間隔
@@ -228,28 +228,38 @@ class Editor(QWidget):
         self.player.mediaStatusChanged.connect(self._on_status)
         self.play_btn = QPushButton("再生")
         self.play_btn.clicked.connect(self.toggle)
+        prev_btn, next_btn = QPushButton("◀︎|"), QPushButton("|▶︎")
+        prev_btn.setToolTip("1 フレーム戻る（←）")
+        next_btn.setToolTip("1 フレーム進む（→）")
+        prev_btn.clicked.connect(lambda: self.step(-1))
+        next_btn.clicked.connect(lambda: self.step(1))
         self.mode_btn = QPushButton()
+        self.mode_btn.setToolTip("Tab")
         self.mode_btn.clicked.connect(lambda: self.set_mode("source" if self.mode == "short" else "short"))
+        self.tc = QLabel()
+        mono = QFont("Menlo")
+        mono.setStyleHint(QFont.StyleHint.Monospace)
+        self.tc.setFont(mono)
         self.pos = QLabel()
         self.pos.setTextFormat(Qt.TextFormat.RichText)
+        self.pos.setStyleSheet("color: gray;")
         ctl = QHBoxLayout()
-        for w in (self.play_btn, self.mode_btn):
+        for w in (prev_btn, next_btn, self.play_btn):
+            w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             ctl.addWidget(w)
+        ctl.addSpacing(8)
+        ctl.addWidget(self.tc)
         ctl.addStretch(1)
-        self.help = QLabel()
-        self.help.setWordWrap(True)
-        self.help.setStyleSheet("color: gray; font-size: 11px;")
+        ctl.addWidget(self.mode_btn)
+        self.mode_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         left = QWidget()
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.addWidget(self.view, 1)
         lv.addLayout(ctl)
         lv.addWidget(self.pos)
-        lv.addWidget(self.help)
 
-        # 右：帯とタブ
-        self.overview = Bar(36, False, self.seek_click)
-        self.zoom = Bar(84, True, self.seek_click)
+        # 右：字幕・カットの一覧
         self.summary = QLabel()
         self.tabs = QTabWidget()
         self.segs = QTableWidget(0, 4)
@@ -257,8 +267,10 @@ class Editor(QWidget):
         self._table(self.segs, stretch=2)
         self.segs.cellClicked.connect(self._click_seg)
         self.caps = QTableWidget(0, 4)
-        self.caps.setHorizontalHeaderLabels(["ショート", "字幕", "文字数", "元動画のフレーム（長さ）"])
+        self.caps.setHorizontalHeaderLabels(["タイムコード", "字幕", "文字数", "操作"])
         self._table(self.caps, stretch=1)
+        self.caps.setWordWrap(True)
+        self.caps.verticalHeader().setDefaultSectionSize(52)
         self.caps.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
                                   | QAbstractItemView.EditTrigger.EditKeyPressed
                                   | QAbstractItemView.EditTrigger.AnyKeyPressed)
@@ -274,8 +286,7 @@ class Editor(QWidget):
         tools = QHBoxLayout()
         for label, key, fn in (("頭をいまの位置に", "I", lambda: self.cap_edge("start")),
                                ("終わりをいまの位置に", "O", lambda: self.cap_edge("end")),
-                               ("いまの位置で分ける", "/", self.cap_split), ("次とつなぐ", "", self.cap_merge),
-                               ("いまの位置に足す", "N", self.cap_add), ("消す", "Delete", self.cap_del)):
+                               ("次とつなぐ", "", self.cap_merge), ("いまの位置に足す", "N", self.cap_add)):
             b = QPushButton(label)
             b.setToolTip(key)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -295,17 +306,33 @@ class Editor(QWidget):
         right = QWidget()
         rv = QVBoxLayout(right)
         rv.setContentsMargins(0, 0, 0, 0)
-        rv.addWidget(self.overview)
-        rv.addWidget(self.zoom)
         rv.addWidget(self.summary)
         rv.addWidget(self.tabs, 1)
 
-        split = QSplitter()
-        split.addWidget(left)
-        split.addWidget(right)
-        split.setStretchFactor(0, 0)
-        split.setStretchFactor(1, 1)
-        split.setSizes([360, 900])
+        upper = QSplitter(Qt.Orientation.Horizontal)
+        upper.addWidget(left)
+        upper.addWidget(right)
+        upper.setStretchFactor(0, 1)
+        upper.setStretchFactor(1, 1)
+        upper.setSizes([620, 700])
+
+        # 下：タイムライン
+        self.timeline = TrackView(self.seek_click, lambda i: self._click_cap(i, 0))
+        self.help = QLabel()
+        self.help.setWordWrap(True)
+        self.help.setStyleSheet("color: gray; font-size: 11px;")
+        lower = QWidget()
+        bv = QVBoxLayout(lower)
+        bv.setContentsMargins(0, 0, 0, 0)
+        bv.addWidget(self.timeline, 1)
+        bv.addWidget(self.help)
+
+        split = QSplitter(Qt.Orientation.Vertical)
+        split.addWidget(upper)
+        split.addWidget(lower)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 0)
+        split.setSizes([560, 260])
         lay = QVBoxLayout(self)
         lay.addLayout(top)
         lay.addWidget(split, 1)
@@ -402,10 +429,13 @@ class Editor(QWidget):
         for i, c in enumerate(self.captions):
             kept = tl.kept_frames(self.keeps, c)
             state = "out" if kept == 0 else "in" if kept >= c["end"] - c["start"] else "part"
-            first = tl.src_to_out(self.keeps, c["start"])
-            at = frames(first, self.fps) if first is not None else ("外した所" if state == "out" else "頭が外した所")
+            pieces = [(a, b) for a, b in _pieces(self.keeps, c)]
+            if pieces:
+                at = f"{timecode(pieces[0][0], self.fps)}\n{timecode(pieces[-1][1], self.fps)}"
+            else:
+                at = "外した所"
             n = len(c["text"])
-            cells = [at, c["text"], str(n), f"{c['start']}–{c['end']}（{(c['end'] - c['start']) / self.fps:.2f}s）"]
+            cells = [at, c["text"], str(n)]
             for col, text in enumerate(cells):
                 it = QTableWidgetItem(text)
                 if col != 1:
@@ -424,25 +454,45 @@ class Editor(QWidget):
                     it.setFont(f)
                     it.setForeground(warn)
                 self.caps.setItem(i, col, it)
+            self.caps.setCellWidget(i, 3, self._cap_ops(i))
         if 0 <= self.cap < len(self.captions):
             self.caps.selectRow(self.cap)
         else:
             self.caps.clearSelection()
         self._filling = False
 
+    def _cap_ops(self, i: int) -> QWidget:
+        """字幕の行の操作（Filmora の字幕の編集と同じく、いまの位置で分ける・消す）"""
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(2, 0, 2, 0)
+        for label, tip, fn in (("分ける", "いまの位置（文字を入力中ならカーソルの所）で分ける（/）", self.cap_split),
+                               ("消す", "消す（Delete）", self.cap_del)):
+            b = QPushButton(label)
+            b.setToolTip(tip)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.clicked.connect(lambda _=False, fn=fn: self._row_op(i, fn))
+            h.addWidget(b)
+        return w
+
+    def _row_op(self, i: int, fn) -> None:
+        self.cap = i
+        fn()
+
     def update_pos(self) -> None:
         out = tl.src_to_out(self.keeps, self.src)
         where = "　<span style='color:#b26b00'>外した所</span>" if out is None else f"　ショート {frames(out, self.fps)}"
         self.pos.setText(f"元動画 {clock(self.src / self.fps)}（{self.src}f）{where}")
-        self.play_btn.setText("停止" if self.playing else "再生")
+        self.play_btn.setText("❚❚ 停止" if self.playing else "▶︎ 再生")
         i = tl.caption_at(self.captions, self.src)
         visible = i >= 0 and (self.mode == "source" or out is not None)
         self.view.set_sub(self.captions[i]["text"] if visible else "")
+        total = tl.total_frames(self.keeps)
+        self.tc.setText(f"{timecode(out if out is not None else self._nearest_out(), self.fps)}"
+                        f" / {timecode(total, self.fps)}")
         lo, hi = self.data["range"]
-        self.overview.set_view(int(lo * self.fps), int(hi * self.fps) + 1, self.keeps, self.captions, self.cap,
-                               self.peaks, self.src)
-        half = ZOOM_SEC * self.fps / 2
-        self.zoom.set_view(self.src - half, self.src + half, self.keeps, self.captions, self.cap, self.peaks, self.src)
+        self.timeline.set_data(self.mode, self.fps, self.keeps, self.captions, self.cap, self.peaks,
+                               (int(lo * self.fps), int(hi * self.fps) + 1), self.src, self.playing)
 
     # ------------------------------------------------------------ 位置と再生
 

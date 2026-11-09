@@ -36,7 +36,7 @@ python3.12 -m venv .venv
 
 再生は「ショート」（外した所を飛ばす）と「元動画」（そのまま）の 2 通りです。
 
-- 共通：`Space` 再生・停止、`←` `→` 1 フレーム（`Shift` で 10 フレーム）、`Tab` ショートと元動画の切り替え、`Ctrl`（`⌘`）+ `Z` 取り消し、`Ctrl`（`⌘`）+ `S` 保存。波形の帯をクリックするとその位置へ動く
+- 共通：`Space` 再生・停止、`←` `→` 1 フレーム（`Shift` で 10 フレーム）、`Tab` ショートと元動画の切り替え、`Ctrl`（`⌘`）+ `Z` 取り消し、`Ctrl`（`⌘`）+ `S` 保存。下のタイムライン（目盛り・字幕・映像・音声の波形）をクリック・ドラッグするとその位置へ動き、字幕をクリックするとその字幕を選ぶ。ホイールで横にスクロール、`Ctrl`（`⌘`）+ ホイール・右下のつまみで拡大・縮小、「全体」で全体を表示
 - カットのタブ：文をクリックして `X`（か行の「外す」「戻す」）で残す・外す、`[` `]` でいまの区間の頭・終わりをいまの位置に
 - 字幕のタブ：文字はダブルクリックか打ち始めでその場で直す（9 文字を超えると文字数が色付きになる）。`I` `O` 選んだ字幕（無ければいま出ている字幕）の頭・終わりをいまの位置に、`/` いまの位置で分ける（文字は直していた欄のカーソルの位置、無ければ長さの比で分ける）、`N` いまの位置に 1 秒の字幕を足す、`Delete` 消す、「次とつなぐ」
 - 動画の上に、いま出ている字幕を重ねて出す（ショートの表示では外した所の字幕は出さない）
@@ -48,7 +48,7 @@ python3.12 -m venv .venv
 ## 開発
 
 - `studio/timeline.py`：区間と字幕のフレームの計算（movie-editer の `shorts/edit.py` と同じ数え方）
-- `studio/editor.py`：編集の画面、`studio/app.py`：一覧と設定、`studio/api.py`：serve の API、`studio/server.py`：serve の起動、`studio/bars.py`：波形の帯
+- `studio/editor.py`：編集の画面、`studio/app.py`：一覧と設定、`studio/api.py`：serve の API、`studio/server.py`：serve の起動、`studio/track.py`：下のタイムライン
 - テスト：`QT_QPA_PLATFORM=offscreen STUDIO_NO_AUDIO=1 .venv/bin/python -m pytest`、Lint：`.venv/bin/python -m ruff check .`
 - `.github/workflows/build.yml` が Mac・Windows のアプリを書き出す（PyInstaller）
 

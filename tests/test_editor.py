@@ -104,25 +104,6 @@ def test_save_rejects_bad_doc(qapp, serve, monkeypatch):
     e.destroy_editor()
 
 
-def test_zoom_wave_follows_keeps(qapp):
-    """拡大した帯の波形は、区間と同じ尺度で描く（1 ピクセル 1 フレームに切り上げない）"""
-    from PySide6.QtGui import QImage
-
-    from studio.bars import Bar
-
-    bar = Bar(40, False, lambda f: None)
-    bar.resize(800, 40)
-    peaks = [0] * 400
-    for f in range(200, 210):
-        peaks[f] = 255
-    bar.set_view(0, 400, [{"start": 200, "end": 210}], [], -1, peaks, -100)
-    img = QImage(800, 40, QImage.Format.Format_RGB32)
-    bar.render(img)
-    # 波形が上の方まで届く所（区間の切れ目の線は除く）
-    loud = [x for x in range(800) if img.pixelColor(x, 3).name() not in ("#e7e7e2", "#cfe3ff", "#2f6fdb")]
-    assert loud and abs(loud[0] - 400) <= 2 and abs(loud[-1] - 419) <= 2
-
-
 def test_save_button(qapp, serve, monkeypatch):
     """保存ボタンを押すと、メモを聞いてから保存する（clicked の bool をメモにしない）"""
     from studio import editor as ed
