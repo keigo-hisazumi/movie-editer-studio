@@ -317,7 +317,7 @@ class Editor(QWidget):
         upper.setSizes([620, 700])
 
         # 下：タイムライン
-        self.timeline = TrackView(self.seek_click, lambda i: self._click_cap(i, 0))
+        self.timeline = TrackView(self.seek_click, lambda i: self._click_cap(i, 0), self.trim)
         self.help = QLabel()
         self.help.setWordWrap(True)
         self.help.setStyleSheet("color: gray; font-size: 11px;")
@@ -680,6 +680,35 @@ class Editor(QWidget):
         if i < 0:
             return
         self.change(keeps=tl.move_edge(k, i, edge, self.src if edge == "start" else self.src + 1))
+
+    def trim(self, kind: str, i: int, edge: tl.Edge, delta: int, commit: bool) -> None:
+        """タイムラインでクリップの端をドラッグした（delta はフレーム）。ドラッグ中は見せるだけで、離したら直す"""
+        if kind == "keep":
+            if not 0 <= i < len(self.keeps):
+                return
+            to = self.keeps[i][edge] + delta
+            keeps, caps, sel = tl.move_edge(self.keeps, i, edge, to), self.captions, self.cap
+        else:
+            if not 0 <= i < len(self.captions):
+                return
+            to = self.captions[i][edge] + delta
+            keeps = self.keeps
+            caps, sel = tl.move_caption_edge(self.captions, i, edge, to)
+        if commit:
+            if delta == 0:
+                self.render()
+                return
+            if kind == "keep":
+                self.change(keeps=keeps)
+            else:
+                self._change_caps(caps, sel)
+            return
+        # ドラッグ中：その端のコマを見せ、タイムラインには直した後の形を描く（まだ直さない）
+        self.pause()
+        self.seek(max(0, to if edge == "start" else to - 1))
+        lo, hi = self.data["range"]
+        self.timeline.set_data(self.mode, self.fps, keeps, caps, sel, self.peaks,
+                               (int(lo * self.fps), int(hi * self.fps) + 1), self.src)
 
     def _target(self) -> int:
         """字幕の操作の対象：選んだ字幕、無ければいま出ている字幕"""

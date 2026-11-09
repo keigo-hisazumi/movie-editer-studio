@@ -3,7 +3,7 @@
 動画編集ソフト（Filmora・Premiere）と同じく、左から右へ時間が流れ、拡大・スクロールできる。
 - ショートの表示：横軸はショートの時間（残す区間をつなげたもの）。区間の切れ目に縦の線
 - 元動画の表示：横軸は元動画の時間（トピックの区間）。外した所は暗く
-クリック・ドラッグでその位置へ動き、字幕をクリックするとその字幕を選ぶ。
+クリック・ドラッグでその位置へ動き、字幕をクリックするとその字幕を選ぶ。字幕・映像・音声のクリップの端をドラッグすると長さを変える。
 ホイールで横にスクロール、⌘（Ctrl）＋ホイール・下のつまみ・T（拡大）R（縮小）で拡大・縮小。
 """
 from __future__ import annotations
@@ -24,6 +24,7 @@ CAP_H = 34
 VIDEO_H = 30
 AUDIO_H = 64
 GAP = 4
+EDGE_PX = 5  # クリップの端をつかめる幅（ピクセル）
 MAX_PX_PER_FRAME = 12.0  # いちばん拡大したとき（1 フレームの幅）
 
 BG = QColor("#1b1c1f")
@@ -73,7 +74,8 @@ class Canvas(QWidget):
     def __init__(self, owner: TrackView):
         super().__init__()
         self.o = owner
-        self.setMouseTracking(False)
+        self.setMouseTracking(True)  # クリップの端に乗ったらカーソルを変える
+        self._trim: tuple[str, int, str, float] | None = None  # 端をドラッグ中（種類・番号・端・押した x）
         self.setMinimumHeight(RULER_H + CAP_H + VIDEO_H + AUDIO_H + GAP * 4)
         self._drag = False
         self._cache: QPixmap | None = None
@@ -247,10 +249,39 @@ class Canvas(QWidget):
                            fm.elidedText(text, Qt.TextElideMode.ElideRight, int(rect.width() - 8)))
 
     # 操作
+    def edge_at(self, pos: QPointF) -> tuple[str, int, str] | None:
+        """pos がクリップの端の上なら（"cap" か "keep"、字幕・区間の番号、"start" か "end"）"""
+        o = self.o
+        rows = self.rows()
+        x = pos.x()
+        hits: list[tuple[float, str, int, str]] = []
+        if rows["cap"].contains(pos):
+            spans: dict[int, list[float]] = {}
+            for a, b, _t, kept, i in o._blocks:
+                if kept:
+                    span = spans.setdefault(i, [a, b])
+                    span[0], span[1] = min(span[0], a), max(span[1], b)
+            for i, (a, b) in spans.items():
+                hits += [(abs(x - o.x(a)), "cap", i, "start"), (abs(x - o.x(b)), "cap", i, "end")]
+        elif rows["video"].contains(pos) or rows["audio"].contains(pos):
+            for i, (a, b) in enumerate(o.clip_ranges()):
+                hits += [(abs(x - o.x(a)), "keep", i, "start"), (abs(x - o.x(b)), "keep", i, "end")]
+        hits = [h for h in hits if h[0] <= EDGE_PX]
+        if not hits:
+            return None
+        _, kind, i, edge = min(hits)
+        return kind, i, edge
+
     def mousePressEvent(self, e: QMouseEvent) -> None:  # noqa: N802
         if e.button() != Qt.MouseButton.LeftButton or e.position().x() < HEAD_W:
             return
         pos = e.position()
+        hit = self.edge_at(pos)
+        if hit and self.o.on_trim:
+            self._trim = (*hit, pos.x())
+            self.o.trimming = True
+            self.o.on_trim(hit[0], hit[1], hit[2], 0, False)
+            return
         rows = self.rows()
         if rows["cap"].contains(pos):
             i = self.o.caption_hit(pos.x())
@@ -260,11 +291,26 @@ class Canvas(QWidget):
         self._drag = True
         self.o.seek_x(pos.x())
 
+    def _trim_delta(self, x: float) -> int:
+        return round((x - self._trim[3]) / self.o.ppf)
+
     def mouseMoveEvent(self, e: QMouseEvent) -> None:  # noqa: N802
-        if self._drag:
+        if self._trim:
+            kind, i, edge, _ = self._trim
+            self.o.on_trim(kind, i, edge, self._trim_delta(e.position().x()), False)
+        elif self._drag:
             self.o.seek_x(e.position().x())
+        else:
+            hit = self.edge_at(e.position()) if e.position().x() >= HEAD_W else None
+            self.setCursor(Qt.CursorShape.SizeHorCursor if hit else Qt.CursorShape.ArrowCursor)
 
     def mouseReleaseEvent(self, e: QMouseEvent) -> None:  # noqa: N802
+        if self._trim:
+            kind, i, edge, _ = self._trim
+            delta = self._trim_delta(e.position().x())
+            self._trim = None
+            self.o.trimming = False
+            self.o.on_trim(kind, i, edge, delta, True)
         self._drag = False
 
     def wheelEvent(self, e: QWheelEvent) -> None:  # noqa: N802
@@ -284,9 +330,12 @@ class Canvas(QWidget):
 class TrackView(QWidget):
     """タイムライン（Canvas）と、横のスクロールバー・拡大のつまみ"""
 
-    def __init__(self, on_seek: Callable[[int], None], on_caption: Callable[[int], None]):
+    def __init__(self, on_seek: Callable[[int], None], on_caption: Callable[[int], None],
+                 on_trim: Callable[[str, int, str, int, bool], None] | None = None):
+        """on_trim(種類, 番号, 端, 動かしたフレーム数, 確定か)：クリップの端をドラッグした（"cap" は字幕、"keep" は区間）"""
         super().__init__()
-        self.on_seek, self.on_caption = on_seek, on_caption
+        self.on_seek, self.on_caption, self.on_trim = on_seek, on_caption, on_trim
+        self.trimming = False
         self.mode = "short"
         self.fps = 30.0
         self.keeps: list[Keep] = []
@@ -349,6 +398,9 @@ class TrackView(QWidget):
             self._out_peaks = self._make_out_peaks() if mode == "short" else []
         self._blocks = self._make_blocks()
         self.head = self.to_axis(src)
+        if self.trimming:  # 端をドラッグ中は、見ている範囲を動かさない
+            self.canvas.update()
+            return
         if changed_axis and self.fit:
             self.fit_all(update=False)
         self._sync_bar()

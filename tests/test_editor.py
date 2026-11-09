@@ -143,3 +143,36 @@ def test_space_and_zoom_keys(qapp):
         assert e.eventFilter(e.caps, ev) and len(toggled) == 2
     assert not e.caps.viewport().testAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled)
     e.destroy_editor()
+
+
+def test_trim_by_dragging_edges(qapp):
+    """タイムラインのクリップの端をドラッグして、区間・字幕の長さを変える（離すまで直さない）"""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtTest import QTest
+
+    e = make(qapp)
+    qapp.processEvents()
+    tv, cv = e.timeline, e.timeline.canvas
+    tv.set_ppf(8.0)
+    tv.left = 40
+    tv._sync_bar()
+    rows = cv.rows()
+
+    def drag(y, x0, x1):
+        QTest.mousePress(cv, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPointF(x0, y).toPoint())
+        QTest.mouseMove(cv, QPointF(x1, y).toPoint())
+        QTest.mouseRelease(cv, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPointF(x1, y).toPoint())
+
+    # 映像の 1 つめのクリップ（元動画 300〜360、ショート 0〜60）の終わりを 10 フレーム右へ
+    y = rows["video"].center().y()
+    assert cv.edge_at(QPointF(tv.x(60), y)) == ("keep", 0, "end")
+    drag(y, tv.x(60), tv.x(60) + 10 * tv.ppf)
+    assert e.keeps[0] == {"start": 300, "end": 370} and e.dirty
+    # 字幕の 1 つめ（300〜330）の終わりを 5 フレーム左へ
+    y = rows["cap"].center().y()
+    assert cv.edge_at(QPointF(tv.x(30), y)) == ("cap", 0, "end")
+    drag(y, tv.x(30), tv.x(30) - 5 * tv.ppf)
+    assert e.captions[0]["end"] == 325
+    e.do_undo()
+    assert e.captions[0]["end"] == 330 and e.keeps[0]["end"] == 370
+    e.destroy_editor()
