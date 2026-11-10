@@ -371,7 +371,7 @@ class Canvas(QWidget):
             i = o.caption_hit(pos.x())
             if i is not None:
                 o.select_clip(("cap", i))
-                o.on_caption(i)
+                (o.on_caption_edit or o.on_caption)(i)  # 右上の一覧で文字を直し始める
             return
         if rows["video"].contains(pos) or rows["audio"].contains(pos):
             f = o.left + (pos.x() - HEAD_W) / o.ppf
@@ -425,6 +425,7 @@ class TrackView(QWidget):
         super().__init__()
         self.on_seek, self.on_caption, self.on_trim = on_seek, on_caption, on_trim
         self.trimming = False
+        self.on_caption_edit: Callable[[int], None] | None = None  # 字幕をダブルクリックした
         self.sel_clip: tuple[str, int] | None = None  # ダブルクリックで選んだクリップ（"keep" か "cap"、番号）
         self.mode = "short"
         self.fps = 30.0

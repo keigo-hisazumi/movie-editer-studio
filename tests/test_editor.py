@@ -20,15 +20,33 @@ def press(e, key, mods=Qt.KeyboardModifier.NoModifier):
     return e.key(QKeyEvent(QEvent.Type.KeyPress, key, mods))
 
 
-def test_cut_toggle_and_undo(qapp):
+def test_blade_and_undo(qapp):
+    """B：いまの位置で区間と字幕を分ける。⌘Z で戻す"""
     e = make(qapp)
-    assert e.segs.rowCount() == 3 and e.segs.item(0, 1).text() == "残す" and e.segs.item(1, 1).text() == "外す"
-    e._click_seg(1, 0)
-    assert press(e, Qt.Key.Key_X)  # 外した文を戻す
-    assert e.keeps == [{"start": 300, "end": 360}, {"start": 450, "end": 480}, {"start": 600, "end": 630}]
+    e.seek(315)
+    assert press(e, Qt.Key.Key_B)
+    assert e.keeps == [{"start": 300, "end": 315}, {"start": 315, "end": 360}, {"start": 600, "end": 630}]
+    assert [(c["start"], c["end"]) for c in e.captions[:2]] == [(300, 315), (315, 330)]
     assert e.dirty and "未保存" in e.rev.text()
     e.do_undo()
-    assert e.keeps == TOPIC["edit"]["keeps"] and not e.dirty
+    assert e.keeps == TOPIC["edit"]["keeps"] and len(e.captions) == 2 and not e.dirty
+    e.seek(300)
+    press(e, Qt.Key.Key_B)  # 区間の頭では分けない（字幕も頭）
+    assert e.keeps == TOPIC["edit"]["keeps"]
+    e.destroy_editor()
+
+
+def test_return_and_fit(qapp):
+    e = make(qapp)
+    e.seek(610)
+    press(e, Qt.Key.Key_Return)
+    assert e.src == 300
+    e.set_mode("source")
+    e.timeline.set_ppf(6.0)
+    press(e, Qt.Key.Key_Z, Qt.KeyboardModifier.ShiftModifier)
+    assert e.timeline.fit
+    press(e, Qt.Key.Key_Return)
+    assert e.src == 150  # 元動画の表示ではトピックの区間の頭（5 秒）
     e.destroy_editor()
 
 
@@ -51,7 +69,6 @@ def test_step_and_edges(qapp):
 
 def test_captions(qapp):
     e = make(qapp)
-    e.tabs.setCurrentIndex(1)
     assert e.caps.rowCount() == 2
     e._click_cap(0, 1)
     e.seek(310)
@@ -75,7 +92,6 @@ def test_captions(qapp):
 def test_save(qapp, serve):
     base, fake = serve
     e = make(qapp, base)
-    e.tabs.setCurrentIndex(1)
     e.caps.item(0, 1).setText("えっ待ってよ")
     assert e.save(note="字幕だけ")
     body = fake.saved[0]
@@ -84,10 +100,8 @@ def test_save(qapp, serve):
     assert doc["by"] == "human" and doc["step"] == "captions" and doc["note"] == "字幕だけ"
     assert doc["captions"][0]["text"] == "えっ待ってよ"
     assert e.base == 2 and not e.dirty
-    e.tabs.setCurrentIndex(0)
-    e._click_seg(1, 0)
-    press(e, Qt.Key.Key_X)
-    assert e.save(note="")
+    e.delete_clip("keep", 1)
+    assert e.save()
     assert fake.saved[1]["doc"]["step"] == "cut" and "note" not in fake.saved[1]["doc"]
     e.destroy_editor()
 
@@ -104,17 +118,13 @@ def test_save_rejects_bad_doc(qapp, serve, monkeypatch):
     e.destroy_editor()
 
 
-def test_save_button(qapp, serve, monkeypatch):
-    """保存ボタンを押すと、メモを聞いてから保存する（clicked の bool をメモにしない）"""
-    from studio import editor as ed
-
+def test_save_button(qapp, serve):
+    """保存ボタンで、メモを聞かずに保存する（clicked の bool をメモにしない）"""
     base, fake = serve
     e = make(qapp, base)
-    monkeypatch.setattr(ed.QInputDialog, "getText", lambda *a, **k: ("ボタンで保存", True))
-    e._click_seg(1, 0)
-    press(e, Qt.Key.Key_X)
+    e.delete_clip("keep", 1)
     e.save_btn.click()
-    assert fake.saved and fake.saved[0]["doc"]["note"] == "ボタンで保存"
+    assert fake.saved and "note" not in fake.saved[0]["doc"]
     e.destroy_editor()
 
 
@@ -195,18 +205,16 @@ def test_double_click_and_delete_clip(qapp):
     assert tv.sel_clip == ("keep", 1)
     press(e, Qt.Key.Key_Delete)
     assert e.keeps == [{"start": 300, "end": 360}] and tv.sel_clip is None
-    press(e, Qt.Key.Key_Delete)  # 何も選んでいない（カットのタブでは何もしない）
-    assert len(e.keeps) == 1
+    e.cap = -1
+    press(e, Qt.Key.Key_Delete)  # 何も選んでいなければ何も消さない
+    assert len(e.keeps) == 1 and len(e.captions) == 2
     # 最後の 1 つの区間は消さない
     tv.select_clip(("keep", 0))
     press(e, Qt.Key.Key_Delete)
     assert len(e.keeps) == 1
-    # 字幕をダブルクリック → Delete
+    # 字幕をダブルクリック → 右上の一覧でその字幕の文字を直し始める
     p = QPointF(tv.x(10), rows["cap"].center().y()).toPoint()
     QTest.mouseDClick(cv, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p)
-    assert tv.sel_clip == ("cap", 0)
-    press(e, Qt.Key.Key_Delete)
-    assert [c["text"] for c in e.captions] == ["うそでしょ"]
-    e.do_undo()
-    assert len(e.captions) == 2
+    assert e.cap == 0 and e.caps.currentRow() == 0
+    assert e.caps.state() == e.caps.State.EditingState
     e.destroy_editor()

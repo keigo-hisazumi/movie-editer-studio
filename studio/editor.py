@@ -38,7 +38,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QHeaderView,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -48,7 +47,6 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -175,7 +173,6 @@ class Editor(QWidget):
         self.dirty = False
         self.mode = "short"
         self.src = self.doc["keeps"][0]["start"] if self.doc["keeps"] else 0
-        self.selected = -1  # カット：選んだ文
         self.cap = -1  # 字幕：選んだ字幕
         self.caret: tuple[int, int] | None = None
         self.typing = False
@@ -262,13 +259,8 @@ class Editor(QWidget):
         lv.addLayout(ctl)
         lv.addWidget(self.pos)
 
-        # 右：字幕・カットの一覧
+        # 右：字幕の一覧
         self.summary = QLabel()
-        self.tabs = QTabWidget()
-        self.segs = QTableWidget(0, 4)
-        self.segs.setHorizontalHeaderLabels(["時刻", "", "文", ""])
-        self._table(self.segs, stretch=2)
-        self.segs.cellClicked.connect(self._click_seg)
         self.caps = QTableWidget(0, 4)
         self.caps.setHorizontalHeaderLabels(["タイムコード", "字幕", "文字数", "操作"])
         self._table(self.caps, stretch=1)
@@ -298,19 +290,11 @@ class Editor(QWidget):
         tools.addStretch(1)
         cv.addLayout(tools)
         cv.addWidget(self.caps)
-        cut_page = QWidget()
-        sv = QVBoxLayout(cut_page)
-        sv.setContentsMargins(0, 4, 0, 0)
-        sv.addWidget(self.segs)
-        self.tabs.addTab(cut_page, "カット")
-        self.tabs.addTab(cap_page, "字幕")
-        self.tabs.currentChanged.connect(lambda _: self.render())
-        self.tabs.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         right = QWidget()
         rv = QVBoxLayout(right)
         rv.setContentsMargins(0, 0, 0, 0)
         rv.addWidget(self.summary)
-        rv.addWidget(self.tabs, 1)
+        rv.addWidget(cap_page, 1)
 
         upper = QSplitter(Qt.Orientation.Horizontal)
         upper.addWidget(left)
@@ -321,6 +305,7 @@ class Editor(QWidget):
 
         # 下：タイムライン
         self.timeline = TrackView(self.seek_click, lambda i: self._click_cap(i, 0), self.trim)
+        self.timeline.on_caption_edit = self.edit_caption
         self.help = QLabel()
         self.help.setWordWrap(True)
         self.help.setStyleSheet("color: gray; font-size: 11px;")
@@ -347,8 +332,7 @@ class Editor(QWidget):
         QShortcut(QKeySequence.StandardKey.Undo, self, self.do_undo)
         # 日本語入力がオンのとき、入力を受け付ける部品にはキーが「変換中の文字」として届き、Space（変換）や
         # T・R が効かない。文字を入力する所（字幕の文字を直す入力欄）以外は、日本語入力を使わない
-        for w in (self, self.caps, self.caps.viewport(), self.segs, self.segs.viewport(), self.timeline,
-                  self.timeline.canvas, self.view, self.tabs):
+        for w in (self, self.caps, self.caps.viewport(), self.timeline, self.timeline.canvas, self.view):
             w.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, False)
         QApplication.instance().installEventFilter(self)
 
@@ -386,49 +370,19 @@ class Editor(QWidget):
     def captions(self) -> list[tl.Caption]:
         return self.doc["captions"]
 
-    @property
-    def panel(self) -> str:
-        return "cut" if self.tabs.currentIndex() == 0 else "captions"
-
     def render(self) -> None:
         k = self.keeps
         self.rev.setText(f"版 {self.base}{'（未保存の変更あり）' if self.dirty else ''}")
         self.mode_btn.setText("表示：ショート" if self.mode == "short" else "表示：元動画")
-        common = "Space 再生・停止／← → 1 フレーム（Shift で 10）／T R 拡大・縮小／クリップをダブルクリック → Delete で消す／Tab ショート・元動画／"
-        self.help.setText(common + ("X 文を外す・戻す／[ ] いまの位置を区間の頭・終わりに" if self.panel == "cut"
-                                    else "I O いまの位置を字幕の頭・終わりに／/ 分ける／N 足す／Delete 消す"))
+        self.help.setText("Space 再生・停止／← → 1 フレーム（Shift で 10）／Return 頭へ／B いまの位置で分割／"
+                          "T R 拡大・縮小／Shift+Z 全体／クリップをダブルクリック → Delete で消す／"
+                          "[ ] いまの位置を区間の頭・終わりに／I O いまの位置を字幕の頭・終わりに／N 字幕を足す／"
+                          "Tab ショート・元動画")
         shown = sum(1 for c in self.captions if tl.kept_frames(k, c) > 0)
         self.summary.setText(f"ショートの長さ <b>{tl.total_frames(k) / self.fps:.1f} 秒</b>（区間 {len(k)} 個）"
                              f"　字幕 {len(self.captions)} 個（ショートに出るもの {shown} 個）")
-        self._fill_segs()
         self._fill_caps()
         self.update_pos()
-
-    def _fill_segs(self) -> None:
-        gray, ok, warn = QBrush(QColor("gray")), QBrush(QColor("#1f8a4c")), QBrush(QColor("#b26b00"))
-        segs = self.data["segments"]
-        self.segs.setRowCount(len(segs))
-        for i, s in enumerate(segs):
-            r = tl.sec_to_frames(s["start"], s["end"], self.fps)
-            kept = tl.kept_frames(self.keeps, r)
-            state = "out" if kept == 0 else "in" if kept >= r["end"] - r["start"] else "part"
-            cells = [clock(s["start"]), {"in": "残す", "part": "一部", "out": "外す"}[state], s["text"]]
-            for c, text in enumerate(cells):
-                it = QTableWidgetItem(text)
-                if c == 1:
-                    it.setForeground({"in": ok, "part": warn, "out": gray}[state])
-                if c == 2 and state == "out":
-                    f = it.font()
-                    f.setStrikeOut(True)
-                    it.setFont(f)
-                    it.setForeground(gray)
-                self.segs.setItem(i, c, it)
-            b = QPushButton("戻す" if state == "out" else "外す")
-            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            b.clicked.connect(lambda _=False, i=i: self.toggle_seg(i))
-            self.segs.setCellWidget(i, 3, b)
-        if 0 <= self.selected < len(segs):
-            self.segs.selectRow(self.selected)
 
     def _fill_caps(self) -> None:
         self._filling = True
@@ -663,12 +617,6 @@ class Editor(QWidget):
         self.typing = False
         self.render()
 
-    def toggle_seg(self, i: int) -> None:
-        s = self.data["segments"][i]
-        r = tl.sec_to_frames(s["start"], s["end"], self.fps)
-        kept = tl.kept_frames(self.keeps, r)
-        self.change(keeps=tl.remove_range(self.keeps, r) if kept > 0 else tl.add_range(self.keeps, r))
-
     def set_edge(self, edge: tl.Edge) -> None:
         """[ ]：いまの位置を区間の頭・終わりにする（区間の中ならその区間、外した所なら隣の区間を広げる）"""
         k = self.keeps
@@ -684,6 +632,49 @@ class Editor(QWidget):
         if i < 0:
             return
         self.change(keeps=tl.move_edge(k, i, edge, self.src if edge == "start" else self.src + 1))
+
+    def blade(self) -> None:
+        """B：いまの位置で、残す区間と字幕を2つに分ける（Filmora・Premiere の分割と同じ）"""
+        keeps, caps = self.keeps, self.captions
+        i = tl.keep_index_at(keeps, self.src)
+        if i >= 0 and keeps[i]["start"] < self.src < keeps[i]["end"]:
+            k = keeps[i]
+            # 分けた2つは元動画でつながっているが、まとめない（片方を消す・端を動かすため）
+            keeps = [*keeps[:i], {"start": k["start"], "end": self.src}, {"start": self.src, "end": k["end"]},
+                     *keeps[i + 1:]]
+        j = tl.caption_at(caps, self.src)
+        sel = self.cap
+        if j >= 0:
+            pos = self.caret[1] if self.caret and self.caret[0] == j else None
+            caps, sel = tl.split_caption(caps, j, self.src, pos)
+            if sel < 0:
+                caps, sel = self.captions, self.cap
+        if keeps is self.keeps and caps is self.captions:
+            return
+        self.cap = sel
+        self.caret = None
+        self.change(keeps=None if keeps is self.keeps else keeps, captions=None if caps is self.captions else caps)
+
+    def go_start(self) -> None:
+        """Return：タイムラインの最初へ（ショートの頭、元動画の表示ならトピックの区間の頭）"""
+        self.pause()
+        if self.mode == "short" and self.keeps:
+            f = self.keeps[0]["start"]
+        else:
+            f = int(self.data["range"][0] * self.fps)
+        self.timeline.left = self.timeline.axis_start() - self.timeline.axis_len()
+        self.timeline.follow = True
+        self.seek(f)
+
+    def edit_caption(self, i: int) -> None:
+        """タイムラインの字幕をダブルクリック：右上の一覧のその字幕の文字を直し始める"""
+        if not 0 <= i < len(self.captions):
+            return
+        self._click_cap(i, 1)
+        self.caps.setCurrentCell(i, 1)
+        self.caps.scrollToItem(self.caps.item(i, 1))
+        self.caps.setFocus()
+        self.caps.editItem(self.caps.item(i, 1))
 
     def delete_clip(self, kind: str, i: int) -> None:
         """タイムラインで選んだクリップを消す（映像・音声なら残す区間、字幕なら字幕）"""
@@ -805,12 +796,6 @@ class Editor(QWidget):
             f = next((x for x in range(c["start"], c["end"]) if tl.src_to_out(self.keeps, x) is not None), f)
         self.seek(f)
 
-    def _click_seg(self, row: int, _col: int) -> None:
-        self.selected = row
-        self.pause()
-        s = self.data["segments"][row]
-        self.seek(tl.sec_to_frames(s["start"], s["end"], self.fps)["start"])
-
     # ------------------------------------------------------------ キー
 
     def eventFilter(self, obj: QObject, e: QEvent) -> bool:  # noqa: N802
@@ -847,26 +832,26 @@ class Editor(QWidget):
             self.step(n if k == Qt.Key.Key_Right else -n)
         elif k in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
             self.set_mode("source" if self.mode == "short" else "short")
-        elif self.panel == "cut":
-            if k == Qt.Key.Key_X and self.selected >= 0:
-                self.toggle_seg(self.selected)
-            elif k in (Qt.Key.Key_BracketLeft, Qt.Key.Key_BracketRight):
-                self.set_edge("start" if k == Qt.Key.Key_BracketLeft else "end")
-            else:
-                return False
+        elif k == Qt.Key.Key_Z and mods & Qt.KeyboardModifier.ShiftModifier:
+            self.timeline.fit_all()
+        elif k in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.go_start()
+        elif k == Qt.Key.Key_B:
+            self.blade()
+        elif k in (Qt.Key.Key_BracketLeft, Qt.Key.Key_BracketRight):
+            self.set_edge("start" if k == Qt.Key.Key_BracketLeft else "end")
+        elif k == Qt.Key.Key_I:
+            self.cap_edge("start")
+        elif k == Qt.Key.Key_O:
+            self.cap_edge("end")
+        elif k == Qt.Key.Key_Slash:
+            self.cap_split()
+        elif k == Qt.Key.Key_N:
+            self.cap_add()
+        elif k in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and self.cap >= 0:
+            self.cap_del()  # 選んだ字幕だけ（何も選んでいなければ消さない）
         else:
-            if k == Qt.Key.Key_I:
-                self.cap_edge("start")
-            elif k == Qt.Key.Key_O:
-                self.cap_edge("end")
-            elif k == Qt.Key.Key_Slash:
-                self.cap_split()
-            elif k == Qt.Key.Key_N:
-                self.cap_add()
-            elif k in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-                self.cap_del()
-            else:
-                return False
+            return False
         return True
 
     # ------------------------------------------------------------ 保存
@@ -885,11 +870,7 @@ class Editor(QWidget):
             return True
         if self.caps.state() == QAbstractItemView.State.EditingState:
             self.caps.setFocus()  # 入力中の文字を確定する
-        if note is None:
-            note, ok = QInputDialog.getText(self, "保存", "直したことのメモ（空でもよい）")
-            if not ok:
-                return False
-        doc = self.build_doc(note.strip())
+        doc = self.build_doc((note or "").strip())  # メモは聞かない（指定があったときだけ付ける）
         errs = validate(doc)
         if errs:
             QMessageBox.warning(self, "保存できません", "\n".join(errs))
