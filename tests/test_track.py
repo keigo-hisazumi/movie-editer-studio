@@ -95,3 +95,21 @@ def test_wheel_reversed(qapp):
     p = v.ppf
     wheel(120, Qt.KeyboardModifier.ControlModifier)
     assert v.ppf < p
+
+
+def test_fine_peaks(qapp):
+    """1 フレームを 8 つに分けた波形（peaks.json の rate 240）を、その細かさで読む"""
+    v = make(qapp)
+    peaks = [0] * (400 * 8)
+    peaks[300 * 8 + 3] = 200  # 元動画の 300 フレームの中ほどだけ大きい
+    v.set_data("source", 30, KEEPS, [], -1, peaks, (90, 340), 100, spf=8)
+    assert v.level(300, 300.3) == (0, True)
+    assert v.level(300.375, 300.5)[0] == 200
+    v.set_data("short", 30, KEEPS, [], -1, peaks, (90, 340), 100, spf=8)
+    assert v.level(60.375, 60.5)[0] == 200  # ショートの 60 フレーム = 元動画の 300
+
+
+def test_edge_cursor(qapp):
+    from studio.track import edge_cursor
+
+    assert edge_cursor("start").hotSpot().x() == 12 and edge_cursor("end") is not edge_cursor("start")

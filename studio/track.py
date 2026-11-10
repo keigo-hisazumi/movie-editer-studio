@@ -12,7 +12,18 @@ import math
 from collections.abc import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPainterPath, QPaintEvent, QPen, QPixmap, QWheelEvent
+from PySide6.QtGui import (
+    QColor,
+    QCursor,
+    QFont,
+    QMouseEvent,
+    QPainter,
+    QPainterPath,
+    QPaintEvent,
+    QPen,
+    QPixmap,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QScrollBar, QSlider, QVBoxLayout, QWidget
 
 from . import timeline as tl
@@ -50,6 +61,45 @@ def timecode(f: int, fps: float) -> str:
     h, s = divmod(s, 3600)
     m, s = divmod(s, 60)
     return f"{h:02d}:{m:02d}:{s:02d}:{ff:02d}"
+
+
+_CURSORS: dict[str, QCursor] = {}
+
+
+def edge_cursor(edge: str) -> QCursor:
+    """クリップの端のカーソル：頭は [、終わりは ]（どちらのクリップを動かすかが分かるように）"""
+    if edge not in _CURSORS:
+        dpr = 2
+        size = 24
+        pm = QPixmap(size * dpr, size * dpr)
+        pm.setDevicePixelRatio(dpr)
+        pm.fill(Qt.GlobalColor.transparent)
+        g = QPainter(pm)
+        g.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        hot = 12  # 縦線の位置（クリックした所）
+        side = 1 if edge == "start" else -1  # 横の棒が出る向き（頭なら右、終わりなら左）
+        path = QPainterPath()
+        path.moveTo(hot + side * 6, 3)
+        path.lineTo(hot, 3)
+        path.lineTo(hot, 21)
+        path.lineTo(hot + side * 6, 21)
+        arrow = QPainterPath()  # 左右に動かせる印
+        for d in (-1, 1):
+            arrow.moveTo(hot + d * 3, 12)
+            arrow.lineTo(hot + d * 9, 12)
+            arrow.moveTo(hot + d * 9, 12)
+            arrow.lineTo(hot + d * 6, 9)
+            arrow.moveTo(hot + d * 9, 12)
+            arrow.lineTo(hot + d * 6, 15)
+        for pen in (QPen(QColor("black"), 4), QPen(QColor("white"), 2)):  # 縁取り → 白
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+            g.setPen(pen)
+            g.drawPath(path)
+            g.drawPath(arrow)
+        g.end()
+        _CURSORS[edge] = QCursor(pm, hot, 12)
+    return _CURSORS[edge]
 
 
 def caption_pieces(keeps: list[Keep], c: Caption) -> list[tuple[int, int]]:
@@ -261,12 +311,20 @@ class Canvas(QWidget):
                 if kept:
                     span = spans.setdefault(i, [a, b])
                     span[0], span[1] = min(span[0], a), max(span[1], b)
-            for i, (a, b) in spans.items():
-                hits += [(abs(x - o.x(a)), "cap", i, "start"), (abs(x - o.x(b)), "cap", i, "end")]
+            ranges = [("cap", i, a, b) for i, (a, b) in spans.items()]
         elif rows["video"].contains(pos) or rows["audio"].contains(pos):
-            for i, (a, b) in enumerate(o.clip_ranges()):
-                hits += [(abs(x - o.x(a)), "keep", i, "start"), (abs(x - o.x(b)), "keep", i, "end")]
-        hits = [h for h in hits if h[0] <= EDGE_PX]
+            ranges = [("keep", i, a, b) for i, (a, b) in enumerate(o.clip_ranges())]
+        else:
+            ranges = []
+        for kind, i, a, b in ranges:
+            # 隣り合うクリップの境目では、マウスがある側のクリップを操作する
+            # （境目の右なら右のクリップの頭、左なら左のクリップの終わり）。クリップの外側は少しだけ
+            d = x - o.x(a)
+            if -1 <= d <= EDGE_PX:
+                hits.append((d if d >= 0 else EDGE_PX + 1 - d, kind, i, "start"))
+            d = o.x(b) - x
+            if -1 <= d <= EDGE_PX:
+                hits.append((d if d > 0 else EDGE_PX + 1 - d, kind, i, "end"))
         if not hits:
             return None
         _, kind, i, edge = min(hits)
@@ -302,7 +360,7 @@ class Canvas(QWidget):
             self.o.seek_x(e.position().x())
         else:
             hit = self.edge_at(e.position()) if e.position().x() >= HEAD_W else None
-            self.setCursor(Qt.CursorShape.SizeHorCursor if hit else Qt.CursorShape.ArrowCursor)
+            self.setCursor(edge_cursor(hit[2]) if hit else Qt.CursorShape.ArrowCursor)
 
     def mouseReleaseEvent(self, e: QMouseEvent) -> None:  # noqa: N802
         if self._trim:
@@ -352,6 +410,7 @@ class TrackView(QWidget):
         self._blocks: list[tuple[int, int, str, bool, int]] = []
         self._wave_key: tuple | None = None
         self._out_peaks: list[int] = []
+        self.spf = 1.0
 
         self.canvas = Canvas(self)
         self.bar = QScrollBar(Qt.Orientation.Horizontal)
@@ -386,13 +445,15 @@ class TrackView(QWidget):
     # ---------------------------------------------------------------- データ
 
     def set_data(self, mode: str, fps: float, keeps: list[Keep], captions: list[Caption], selected: int,
-                 peaks: list[int], rng: tuple[int, int], src: int, playing: bool = False) -> None:
+                 peaks: list[int], rng: tuple[int, int], src: int, playing: bool = False, spf: float = 1.0) -> None:
+        """spf：波形の 1 フレームあたりの数（peaks.json の rate / fps。前の 1 フレームごとの波形なら 1）"""
         changed_axis = mode != self.mode or rng != self.range or tl.total_frames(keeps) != tl.total_frames(self.keeps)
         self.mode, self.fps = mode, fps
         self.keeps, self.captions, self.selected, self.peaks = keeps, captions, selected, peaks
         self.range = (rng[0], max(rng[1], rng[0] + 1))
         self.src = src
-        key = (mode, tuple((k["start"], k["end"]) for k in keeps), id(peaks), len(peaks))
+        self.spf = max(1e-6, spf)
+        key = (mode, tuple((k["start"], k["end"]) for k in keeps), id(peaks), len(peaks), self.spf)
         if key != self._wave_key:  # ショートの時間ごとの音量（再生中に毎回計算しないように）
             self._wave_key = key
             self._out_peaks = self._make_out_peaks() if mode == "short" else []
@@ -475,22 +536,26 @@ class TrackView(QWidget):
         return None
 
     def level(self, f0: float, f1: float) -> tuple[int, bool]:
-        """軸の f0〜f1 の音量の最大（0〜255）と、ショートに残る所か"""
-        a, b = int(math.floor(f0)), max(int(math.floor(f0)) + 1, int(math.floor(f1)))
-        if self.mode == "source":
-            seg = self.peaks[max(0, a):max(0, min(len(self.peaks), b))]
-            kept = tl.keep_index_at(self.keeps, a) >= 0
-            return (max(seg) if seg else 0), kept
-        seg = self._out_peaks[max(0, a):max(0, min(len(self._out_peaks), b))]
-        return (max(seg) if seg else 0), True
+        """軸の f0〜f1（フレーム）の音量の最大（0〜255）と、ショートに残る所か。
+
+        波形は 1 フレームを spf 個に分けた細かさ（movie-editer の peaks.json の rate / fps）で持つ
+        """
+        a = int(math.floor(f0 * self.spf))
+        b = max(a + 1, int(math.floor(f1 * self.spf)))
+        src = self.peaks if self.mode == "source" else self._out_peaks
+        seg = src[max(0, a):max(0, min(len(src), b))]
+        kept = self.mode != "source" or tl.keep_index_at(self.keeps, int(math.floor(f0))) >= 0
+        return (max(seg) if seg else 0), kept
 
     def _make_out_peaks(self) -> list[int]:
+        """ショートの順につなげた波形（残す区間ごとに、元動画の波形を切り出す）"""
         n = len(self.peaks)
         out: list[int] = []
         for k in self.keeps:
-            seg = self.peaks[max(0, k["start"]):max(0, min(n, k["end"]))]
+            a, b = round(k["start"] * self.spf), round(k["end"] * self.spf)
+            seg = self.peaks[max(0, a):max(0, min(n, b))]
             out.extend(seg)
-            out.extend([0] * (k["end"] - k["start"] - len(seg)))
+            out.extend([0] * (b - a - len(seg)))
         return out
 
     # ---------------------------------------------------------------- 位置と拡大

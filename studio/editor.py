@@ -163,6 +163,9 @@ class Editor(QWidget):
         super().__init__()
         self.api, self.name, self.topic, self.data = api, name, topic, data
         self.peaks: list[int] = (peaks or {}).get("peaks") or []
+        # 波形の 1 フレームあたりの数（movie-editer の peaks.json の rate。前の 1 フレームごとのものには rate が無い）
+        p = peaks or {}
+        self.peak_spf = float(p.get("rate") or p.get("fps") or 30) / float(p.get("fps") or 30)
         self.doc: dict[str, Any] = copy.deepcopy(data["edit"])
         self.doc["captions"] = tl.sort_captions(self.doc["captions"])
         self.base: int = self.doc["revision"]
@@ -497,7 +500,7 @@ class Editor(QWidget):
                         f" / {timecode(total, self.fps)}")
         lo, hi = self.data["range"]
         self.timeline.set_data(self.mode, self.fps, self.keeps, self.captions, self.cap, self.peaks,
-                               (int(lo * self.fps), int(hi * self.fps) + 1), self.src, self.playing)
+                               (int(lo * self.fps), int(hi * self.fps) + 1), self.src, self.playing, self.peak_spf)
 
     # ------------------------------------------------------------ 位置と再生
 
@@ -708,7 +711,7 @@ class Editor(QWidget):
         self.seek(max(0, to if edge == "start" else to - 1))
         lo, hi = self.data["range"]
         self.timeline.set_data(self.mode, self.fps, keeps, caps, sel, self.peaks,
-                               (int(lo * self.fps), int(hi * self.fps) + 1), self.src)
+                               (int(lo * self.fps), int(hi * self.fps) + 1), self.src, spf=self.peak_spf)
 
     def _target(self) -> int:
         """字幕の操作の対象：選んだ字幕、無ければいま出ている字幕"""

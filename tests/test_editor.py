@@ -165,13 +165,15 @@ def test_trim_by_dragging_edges(qapp):
 
     # 映像の 1 つめのクリップ（元動画 300〜360、ショート 0〜60）の終わりを 10 フレーム右へ
     y = rows["video"].center().y()
-    assert cv.edge_at(QPointF(tv.x(60), y)) == ("keep", 0, "end")
-    drag(y, tv.x(60), tv.x(60) + 10 * tv.ppf)
+    # 隣り合う境目：左側なら左のクリップの終わり、右側なら右のクリップの頭
+    assert cv.edge_at(QPointF(tv.x(60) - 2, y)) == ("keep", 0, "end")
+    assert cv.edge_at(QPointF(tv.x(60) + 2, y)) == ("keep", 1, "start")
+    drag(y, tv.x(60) - 2, tv.x(60) - 2 + 10 * tv.ppf)
     assert e.keeps[0] == {"start": 300, "end": 370} and e.dirty
     # 字幕の 1 つめ（300〜330）の終わりを 5 フレーム左へ
     y = rows["cap"].center().y()
-    assert cv.edge_at(QPointF(tv.x(30), y)) == ("cap", 0, "end")
-    drag(y, tv.x(30), tv.x(30) - 5 * tv.ppf)
+    assert cv.edge_at(QPointF(tv.x(30) - 2, y)) == ("cap", 0, "end")
+    drag(y, tv.x(30) - 2, tv.x(30) - 2 - 5 * tv.ppf)
     assert e.captions[0]["end"] == 325
     e.do_undo()
     assert e.captions[0]["end"] == 330 and e.keeps[0]["end"] == 370
