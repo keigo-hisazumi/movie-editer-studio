@@ -394,7 +394,7 @@ class Editor(QWidget):
         k = self.keeps
         self.rev.setText(f"版 {self.base}{'（未保存の変更あり）' if self.dirty else ''}")
         self.mode_btn.setText("表示：ショート" if self.mode == "short" else "表示：元動画")
-        common = "Space 再生・停止／← → 1 フレーム（Shift で 10）／T R 拡大・縮小／Tab ショート・元動画／"
+        common = "Space 再生・停止／← → 1 フレーム（Shift で 10）／T R 拡大・縮小／クリップをダブルクリック → Delete で消す／Tab ショート・元動画／"
         self.help.setText(common + ("X 文を外す・戻す／[ ] いまの位置を区間の頭・終わりに" if self.panel == "cut"
                                     else "I O いまの位置を字幕の頭・終わりに／/ 分ける／N 足す／Delete 消す"))
         shown = sum(1 for c in self.captions if tl.kept_frames(k, c) > 0)
@@ -643,6 +643,7 @@ class Editor(QWidget):
 
     def change(self, keeps: list | None = None, captions: list | None = None) -> None:
         self.undo.append((self.keeps, self.captions))
+        self.timeline.select_clip(None)  # 番号が変わるので、選んだクリップは外す
         if keeps is not None:
             self.doc["keeps"] = keeps
             self.keeps_changed = True
@@ -683,6 +684,17 @@ class Editor(QWidget):
         if i < 0:
             return
         self.change(keeps=tl.move_edge(k, i, edge, self.src if edge == "start" else self.src + 1))
+
+    def delete_clip(self, kind: str, i: int) -> None:
+        """タイムラインで選んだクリップを消す（映像・音声なら残す区間、字幕なら字幕）"""
+        self.timeline.select_clip(None)
+        if kind == "keep":
+            if not 0 <= i < len(self.keeps) or len(self.keeps) <= 1:
+                return  # 区間が無くなるとショートが無くなるので、最後の 1 つは消さない
+            self.change(keeps=[k for j, k in enumerate(self.keeps) if j != i])
+        elif 0 <= i < len(self.captions):
+            self.cap = i
+            self.cap_del()
 
     def trim(self, kind: str, i: int, edge: tl.Edge, delta: int, commit: bool) -> None:
         """タイムラインでクリップの端をドラッグした（delta はフレーム）。ドラッグ中は見せるだけで、離したら直す"""
@@ -821,7 +833,12 @@ class Editor(QWidget):
         mods = e.modifiers()
         if mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
             return False  # 保存・取り消しは QShortcut
-        if k == Qt.Key.Key_Space:
+        sel = self.timeline.sel_clip
+        if sel and k in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.delete_clip(*sel)
+        elif sel and k == Qt.Key.Key_Escape:
+            self.timeline.select_clip(None)
+        elif k == Qt.Key.Key_Space:
             self.toggle()
         elif k in (Qt.Key.Key_T, Qt.Key.Key_R) and not mods & Qt.KeyboardModifier.ShiftModifier:
             self.timeline.zoom_by(1.25 if k == Qt.Key.Key_T else 0.8)

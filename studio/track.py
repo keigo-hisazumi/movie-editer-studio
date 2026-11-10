@@ -3,7 +3,7 @@
 動画編集ソフト（Filmora・Premiere）と同じく、左から右へ時間が流れ、拡大・スクロールできる。
 - ショートの表示：横軸はショートの時間（残す区間をつなげたもの）。区間の切れ目に縦の線
 - 元動画の表示：横軸は元動画の時間（トピックの区間）。外した所は暗く
-クリック・ドラッグでその位置へ動き、字幕をクリックするとその字幕を選ぶ。字幕・映像・音声のクリップの端をドラッグすると長さを変える。
+クリック・ドラッグでその位置へ動き、字幕をクリックするとその字幕を選ぶ。字幕・映像・音声のクリップの端をドラッグすると長さを変える。クリップをダブルクリックで選び、Delete で消す。
 ホイールで横にスクロール、⌘（Ctrl）＋ホイール・下のつまみ・T（拡大）R（縮小）で拡大・縮小。
 """
 from __future__ import annotations
@@ -148,7 +148,7 @@ class Canvas(QWidget):
         # いまの位置の線以外は、見ている範囲・中身が変わったときだけ描き直す（再生中に毎回描くと重い）
         dpr = self.devicePixelRatioF()
         key = (o.left, o.ppf, self.width(), self.height(), dpr, o.mode, o._wave_key,
-               tuple(o._blocks), o.selected)
+               tuple(o._blocks), o.selected, o.sel_clip)
         if key != self._cache_key or self._cache is None:
             self._cache_key = key
             self._cache = QPixmap(round(self.width() * dpr), round(self.height() * dpr))
@@ -186,6 +186,16 @@ class Canvas(QWidget):
         self._clips(g, rows["audio"], AUDIO, None)
         g.setRenderHint(QPainter.RenderHint.Antialiasing, False)  # 波形は 1 ピクセルごとなので要らない（速い）
         self._wave(g, rows["audio"])
+        if o.sel_clip and o.sel_clip[0] == "keep":  # ダブルクリックで選んだ区間（映像・音声）を白い枠で
+            ranges = o.clip_ranges()
+            if 0 <= o.sel_clip[1] < len(ranges):
+                a, b = ranges[o.sel_clip[1]]
+                g.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                g.setPen(QPen(QColor("white"), 2))
+                g.setBrush(Qt.BrushStyle.NoBrush)
+                for r in (rows["video"], rows["audio"]):
+                    g.drawRoundedRect(QRectF(o.x(a), r.top(), max(1.0, o.x(b) - o.x(a)), r.height())
+                                      .adjusted(1, 1, -1, -1), 3, 3)
         g.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._captions(g, rows["cap"])
         if o.mode == "short":
@@ -334,6 +344,7 @@ class Canvas(QWidget):
         if e.button() != Qt.MouseButton.LeftButton or e.position().x() < HEAD_W:
             return
         pos = e.position()
+        self.o.select_clip(None)
         hit = self.edge_at(pos)
         if hit and self.o.on_trim:
             self._trim = (*hit, pos.x())
@@ -348,6 +359,26 @@ class Canvas(QWidget):
                 return
         self._drag = True
         self.o.seek_x(pos.x())
+
+    def mouseDoubleClickEvent(self, e: QMouseEvent) -> None:  # noqa: N802
+        """クリップをダブルクリックで選ぶ（Delete で消せる）"""
+        if e.button() != Qt.MouseButton.LeftButton or e.position().x() < HEAD_W:
+            return
+        pos = e.position()
+        rows = self.rows()
+        o = self.o
+        if rows["cap"].contains(pos):
+            i = o.caption_hit(pos.x())
+            if i is not None:
+                o.select_clip(("cap", i))
+                o.on_caption(i)
+            return
+        if rows["video"].contains(pos) or rows["audio"].contains(pos):
+            f = o.left + (pos.x() - HEAD_W) / o.ppf
+            for i, (a, b) in enumerate(o.clip_ranges()):
+                if a <= f < b:
+                    o.select_clip(("keep", i))
+                    return
 
     def _trim_delta(self, x: float) -> int:
         return round((x - self._trim[3]) / self.o.ppf)
@@ -394,6 +425,7 @@ class TrackView(QWidget):
         super().__init__()
         self.on_seek, self.on_caption, self.on_trim = on_seek, on_caption, on_trim
         self.trimming = False
+        self.sel_clip: tuple[str, int] | None = None  # ダブルクリックで選んだクリップ（"keep" か "cap"、番号）
         self.mode = "short"
         self.fps = 30.0
         self.keeps: list[Keep] = []
@@ -527,6 +559,11 @@ class TrackView(QWidget):
 
     def caption_index(self, block: int) -> int:
         return self._blocks[block][4]
+
+    def select_clip(self, clip: tuple[str, int] | None) -> None:
+        if clip != self.sel_clip:
+            self.sel_clip = clip
+            self.canvas.update()
 
     def caption_hit(self, x: float) -> int | None:
         f = self.left + (x - HEAD_W) / self.ppf

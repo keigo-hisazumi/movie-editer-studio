@@ -178,3 +178,35 @@ def test_trim_by_dragging_edges(qapp):
     e.do_undo()
     assert e.captions[0]["end"] == 330 and e.keeps[0]["end"] == 370
     e.destroy_editor()
+
+
+def test_double_click_and_delete_clip(qapp):
+    """クリップをダブルクリックで選び、Delete で消す（映像・音声は残す区間、字幕は字幕）"""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtTest import QTest
+
+    e = make(qapp)
+    qapp.processEvents()
+    tv, cv = e.timeline, e.timeline.canvas
+    rows = cv.rows()
+    # 2 つめの区間（元動画 600〜630、ショート 60〜90）をダブルクリック
+    p = QPointF(tv.x(75), rows["audio"].center().y()).toPoint()
+    QTest.mouseDClick(cv, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p)
+    assert tv.sel_clip == ("keep", 1)
+    press(e, Qt.Key.Key_Delete)
+    assert e.keeps == [{"start": 300, "end": 360}] and tv.sel_clip is None
+    press(e, Qt.Key.Key_Delete)  # 何も選んでいない（カットのタブでは何もしない）
+    assert len(e.keeps) == 1
+    # 最後の 1 つの区間は消さない
+    tv.select_clip(("keep", 0))
+    press(e, Qt.Key.Key_Delete)
+    assert len(e.keeps) == 1
+    # 字幕をダブルクリック → Delete
+    p = QPointF(tv.x(10), rows["cap"].center().y()).toPoint()
+    QTest.mouseDClick(cv, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p)
+    assert tv.sel_clip == ("cap", 0)
+    press(e, Qt.Key.Key_Delete)
+    assert [c["text"] for c in e.captions] == ["うそでしょ"]
+    e.do_undo()
+    assert len(e.captions) == 2
+    e.destroy_editor()
