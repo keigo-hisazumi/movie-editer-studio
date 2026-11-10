@@ -218,3 +218,23 @@ def test_double_click_and_delete_clip(qapp):
     assert e.cap == 0 and e.caps.currentRow() == 0
     assert e.caps.state() == e.caps.State.EditingState
     e.destroy_editor()
+
+
+def test_caption_edit_only_by_double_click(qapp):
+    """一覧の字幕はクリックで選ぶだけ。直し始めるのはダブルクリックのときだけ"""
+    from PySide6.QtGui import QInputMethodEvent
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    e = make(qapp)
+    r = e.caps.visualItemRect(e.caps.item(0, 1)).center()
+    QTest.mouseClick(e.caps.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, r)
+    assert e.caps.state() != e.caps.State.EditingState
+    assert not e.caps.testAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled)
+    ev = QInputMethodEvent()
+    ev.setCommitString("あ")
+    QApplication.sendEvent(e.caps, ev)  # 日本語入力から文字が届いても直し始めない
+    assert e.caps.state() != e.caps.State.EditingState
+    QTest.mouseDClick(e.caps.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, r)
+    assert e.caps.state() == e.caps.State.EditingState
+    e.destroy_editor()

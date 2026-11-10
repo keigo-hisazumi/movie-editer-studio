@@ -266,9 +266,11 @@ class Editor(QWidget):
         self._table(self.caps, stretch=1)
         self.caps.setWordWrap(True)
         self.caps.verticalHeader().setDefaultSectionSize(52)
-        self.caps.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
-                                  | QAbstractItemView.EditTrigger.EditKeyPressed
-                                  | QAbstractItemView.EditTrigger.AnyKeyPressed)
+        # 文字を直し始めるのはダブルクリックのときだけ（クリックして選んだだけ・キーを押しただけでは直さない）
+        self.caps.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
+        # Qt は選んだ行が変わるたびに日本語入力を使える状態に戻す（Mac で Space などが変換に取られる）ので、また切る
+        self.caps.currentCellChanged.connect(
+            lambda *_: self.caps.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, False))
         delegate = CaretDelegate(self.caps)
         delegate.caret.connect(lambda row, pos: setattr(self, "caret", (row, pos)))
         self.caps.setItemDelegateForColumn(1, delegate)
