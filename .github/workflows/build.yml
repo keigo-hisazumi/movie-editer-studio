@@ -62,6 +62,8 @@ jobs:
         run: Compress-Archive -Path "dist/movie-editer studio" -DestinationPath movie-editer-studio-windows.zip
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: movie-editer-studio-${{ runner.os == 'macOS' && 'mac' || 'windows' }}
-          path: movie-editer-studio-*.zip
+          # 自分で作った zip をそのまま置く（もう一度 zip に包まない。ダウンロードして1回展開すればアプリが出る）
+          # archive: false のときの成果物の名前はファイル名（movie-editer-studio-mac.zip など）
+          path: movie-editer-studio-${{ runner.os == 'macOS' && 'mac' || 'windows' }}.zip
+          archive: false
           retention-days: 30
