@@ -70,7 +70,11 @@ def test_move_caption_edge():
     out, i = move_caption_edge(caps(), 0, "end", 5)
     assert out[0] == {"start": 10, "end": 11, "text": "あいうえ"} and i == 0  # 1 フレームは残す
     out, i = move_caption_edge(caps(), 2, "start", 0)
-    assert [c["text"] for c in out] == ["さ", "あいうえ", "かき"] and i == 0  # 並び直す
+    assert out == [{"start": 0, "end": 60, "text": "さ"}] and i == 0  # すっぽり重なった字幕は消す
+    out, i = move_caption_edge(caps(), 1, "start", 15)  # 前の字幕の後ろ側に重ねる
+    assert out[0] == {"start": 10, "end": 15, "text": "あいうえ"} and out[1]["start"] == 15 and i == 1
+    out, i = move_caption_edge(caps(), 0, "end", 25)  # 次の字幕の頭側に重ねる
+    assert out[0]["end"] == 25 and out[1]["start"] == 25 and out[1]["text"] == "かき" and i == 0
 
 
 def test_split_caption():

@@ -153,8 +153,27 @@ def move_caption_edge(caps: list[Caption], i: int, edge: Edge, to: int) -> tuple
         new: Caption = {**c, "start": min(max(0, to), c["end"] - 1)}
     else:
         new = {**c, "end": max(to, c["start"] + 1)}
-    out = sort_captions([new if j == i else x for j, x in enumerate(caps)])
+    rest = [x for j, x in enumerate(caps) if j != i]
+    out = sort_captions([new, *_cut_overlap(rest, new["start"], new["end"], edge)])
     return out, next(j for j, x in enumerate(out) if x is new)
+
+
+def _cut_overlap(caps: list[Caption], a: int, b: int, edge: Edge) -> list[Caption]:
+    """ほかの字幕から a〜b に重なる所を削る（動かした字幕を優先する）。すっぽり重なった字幕は消す"""
+    out: list[Caption] = []
+    for x in caps:
+        if x["end"] <= a or x["start"] >= b:
+            out.append(x)
+        elif x["start"] >= a and x["end"] <= b:
+            continue  # すっぽり重なった
+        elif x["start"] < a and x["end"] > b:
+            # 動かした字幕を包んでいる：動かした端の側を削る
+            out.append({**x, "end": a} if edge == "start" else {**x, "start": b})
+        elif x["start"] < a:
+            out.append({**x, "end": a})
+        else:
+            out.append({**x, "start": b})
+    return out
 
 
 def split_caption(caps: list[Caption], i: int, at: int, pos: int | None = None) -> tuple[list[Caption], int]:
