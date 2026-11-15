@@ -42,6 +42,7 @@ python3.12 -m venv .venv
 - 動画の上に、いま出ている字幕を重ねて出す（ショートの表示では外した所の字幕は出さない）
 - 字幕は元動画のフレームで持つので、あとでカットを直しても元の発話に付いたまま。字幕だけを直して保存した版は `step: captions`、カットも直した版は `step: cut`
 - 保存する前に movie-editer-schema の `EditDoc` の形を確かめる
+- 「XML に書き出す」：いまのカットと字幕を、Filmora・Premiere 用の XML（`<動画名>_topic_XX_studio.xml`）と `studio.srt` に書き出し直す（serve が `topic_XX/` に書く。保存していない変更は先に保存する。movie-editer の serve が書き出しの API（`POST /api/v/<動画名>/t/<ID>/export`）を持っている必要がある）
 - 動画を開けない・再生できないときは、動画の所に理由を出す。アプリだけで再生できるかは、ターミナルで `"/Applications/movie-editer studio.app/Contents/MacOS/movie-editer studio" --self-check <確認用の動画>` を実行すると確かめられる（結果はいまのフォルダの `self-check.log` にも書く）
 - 一覧からトピックを開けないなど思わぬエラーは、理由を画面に出し、記録にも書く（Mac は `~/Library/Logs/movie-editer studio.log`、Windows は `%LOCALAPPDATA%\movie-editer\movie-editer studio\movie-editer studio.log` あたり。画面に場所が出る）
 

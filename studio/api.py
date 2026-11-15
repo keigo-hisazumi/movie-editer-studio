@@ -69,5 +69,9 @@ class Api:
         return self._call(f"/api/v/{quote(name, safe='')}/t/{topic}/edit", "PUT",
                           {"base_revision": base_revision, "doc": doc})
 
+    def export(self, name: str, topic: int) -> dict[str, Any]:
+        """いまの edit.json から Filmora・Premiere 用の XML と字幕を topic_XX/ に書き出し直す（serve が書く）"""
+        return self._call(f"/api/v/{quote(name, safe='')}/t/{topic}/export", "POST", {}, timeout=120)
+
     def peaks(self, path: str) -> dict[str, Any]:
         return self._call(path)

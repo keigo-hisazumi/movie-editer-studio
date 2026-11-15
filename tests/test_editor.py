@@ -238,3 +238,18 @@ def test_caption_edit_only_by_double_click(qapp):
     QTest.mouseDClick(e.caps.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, r)
     assert e.caps.state() == e.caps.State.EditingState
     e.destroy_editor()
+
+
+def test_export_saves_first(qapp, serve, monkeypatch):
+    """「XML に書き出す」：保存していない変更を先に保存してから、serve に書き出しを頼む"""
+    from studio import editor as ed
+
+    base, fake = serve
+    shown = []
+    monkeypatch.setattr(ed.QMessageBox, "information", lambda *a: shown.append(a[2]))
+    e = make(qapp, base)
+    e.delete_clip("keep", 1)
+    e.export_btn.click()
+    assert len(fake.saved) == 1 and fake.exported == [2]
+    assert shown and "studio.srt" in shown[0]
+    e.destroy_editor()

@@ -28,6 +28,7 @@ class Fake(BaseHTTPRequestHandler):
     """serve の代わり（版の確かめ方だけ同じ）"""
 
     saved: list = []
+    exported: list = []
     revision = 1
 
     def _json(self, code, obj):
@@ -55,13 +56,21 @@ class Fake(BaseHTTPRequestHandler):
         Fake.saved.append(body)
         self._json(200, {**body["doc"], "revision": Fake.revision})
 
+    def do_POST(self):  # noqa: N802
+        self.rfile.read(int(self.headers["Content-Length"]))
+        if self.path == "/api/v/20261017/t/2/export":
+            Fake.exported.append(Fake.revision)
+            return self._json(200, {"revision": Fake.revision, "files": ["20261017_topic_02_studio.xml", "studio.srt"],
+                                    "dir": "/out/20261017/topic_02"})
+        self._json(404, {"error": "見つかりません"})
+
     def log_message(self, *a):
         pass
 
 
 @pytest.fixture
 def serve():
-    Fake.saved, Fake.revision = [], 1
+    Fake.saved, Fake.revision, Fake.exported = [], 1, []
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_port}", Fake

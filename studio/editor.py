@@ -211,7 +211,11 @@ class Editor(QWidget):
         for w in (back, title):
             top.addWidget(w)
         top.addStretch(1)
-        for w in (self.rev, self.undo_btn, self.save_btn):
+        self.export_btn = QPushButton("XML に書き出す")
+        self.export_btn.setToolTip("いまのカットと字幕を、Filmora・Premiere 用の XML（_studio.xml）と studio.srt に"
+                                   "書き出し直す（保存していない変更は先に保存する）")
+        self.export_btn.clicked.connect(lambda: self.export())
+        for w in (self.rev, self.undo_btn, self.save_btn, self.export_btn):
             top.addWidget(w)
 
         # 左：動画と再生
@@ -892,4 +896,24 @@ class Editor(QWidget):
         self.keeps_changed = False
         self.cap = -1
         self.render()
+        return True
+
+    def export(self) -> bool:
+        """保存した版から XML と字幕を書き出し直す（serve が topic_XX/ に書く）"""
+        if self.dirty and not self.save():
+            return False
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            out = self.api.export(self.name, self.topic)
+        except ApiError as e:
+            QApplication.restoreOverrideCursor()
+            msg = str(e)
+            if e.status == 501 or e.status == 404 and msg == "見つかりません":  # 書き出しの API が無い前の serve
+                msg += "（movie-editer を新しくして serve を起動し直してください）"
+            QMessageBox.warning(self, "書き出せませんでした", msg)
+            return False
+        QApplication.restoreOverrideCursor()
+        files = "\n".join(f"・{f}" for f in out.get("files", []))
+        QMessageBox.information(self, "書き出しました",
+                                f"版 {out.get('revision')} から書き出しました。\n{files}\n\n場所：{out.get('dir', '')}")
         return True
