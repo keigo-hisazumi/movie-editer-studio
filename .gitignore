@@ -67,3 +67,14 @@ __screenshots__/
 # ツール
 .vercel
 .wrangler
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+self-check.log

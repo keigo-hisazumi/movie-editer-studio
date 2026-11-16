@@ -1,0 +1,69 @@
+# アプリの書き出し：Mac の .app と Windows の .exe を PyInstaller で作り、Actions の成果物（Artifacts）に置く
+# （署名はしていない。初回は Mac なら右クリック ▸ 開く、Windows なら「詳細情報 ▸ 実行」で開く）
+
+name: Build
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: 書き出し（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: 依存関係のインストール
+        run: python -m pip install ".[build]"
+      - name: PyInstaller で書き出す
+        run: >-
+          pyinstaller --noconfirm --windowed --name "movie-editer studio"
+          --collect-data movie_editer_schema --paths . studio/__main__.py
+      - name: 書き出したアプリの確かめ（Mac）
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        run: '"dist/movie-editer studio.app/Contents/MacOS/movie-editer studio" --self-check tests/data/sample.mp4'
+      - name: 書き出したアプリの確かめ（Windows）
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          code=0
+          "dist/movie-editer studio/movie-editer studio.exe" --self-check tests/data/sample.mp4 || code=$?
+          cat self-check.log
+          exit "$code"
+      - name: まとめる（Mac）
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent "dist/movie-editer studio.app" movie-editer-studio-mac.zip
+      - name: まとめる（Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/movie-editer studio" -DestinationPath movie-editer-studio-windows.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          # 自分で作った zip をそのまま置く（もう一度 zip に包まない。ダウンロードして1回展開すればアプリが出る）
+          # archive: false のときの成果物の名前はファイル名（movie-editer-studio-mac.zip など）
+          path: movie-editer-studio-${{ runner.os == 'macOS' && 'mac' || 'windows' }}.zip
+          archive: false
+          retention-days: 30
