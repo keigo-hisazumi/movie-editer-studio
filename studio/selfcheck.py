@@ -3,7 +3,7 @@
     movie-editer-studio --self-check [動画のファイル]
 
 Qt の動画の部品が使えるか・edit.json の検査が動くかを見る。動画のファイルを渡すと、ファイルと HTTP（serve と同じ
-つなぎ方）の両方で実際に再生し、コマが届いて再生位置が進むかを見る。結果は self-check.log（いまのフォルダ）と、標準出力が
+つなぎ方。Range にも答える）の両方で実際に再生し、コマが届いて再生位置が進むかを見る。結果は self-check.log（いまのフォルダ）と、標準出力が
 あればそこにも書き、だめなら終了コード 1。
 """
 from __future__ import annotations
@@ -92,5 +92,45 @@ def run(argv: list[str]) -> int:
 
 
 class _Quiet(SimpleHTTPRequestHandler):
+    """Range（bytes=a-b）にも答える（serve と同じ。iPhone の録画は moov が最後にあり、Range が無いと読めない）"""
+
+    left: int | None = None
+
     def log_message(self, *a) -> None:
         pass
+
+    def send_head(self):  # noqa: ANN201
+        rng = self.headers.get("Range") or ""
+        path = Path(self.translate_path(self.path))
+        if not rng.startswith("bytes=") or "," in rng or not path.is_file():
+            return super().send_head()
+        size = path.stat().st_size
+        a, _, b = rng[6:].strip().partition("-")
+        try:
+            start, end = (size - int(b), size - 1) if a == "" else (int(a), int(b) if b else size - 1)
+        except ValueError:
+            return super().send_head()
+        start, end = max(0, start), min(end, size - 1)
+        if start > end:
+            self.send_error(416)
+            return None
+        f = path.open("rb")
+        f.seek(start)
+        self.left = end - start + 1
+        self.send_response(206)
+        self.send_header("Content-Type", self.guess_type(str(path)))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Content-Length", str(self.left))
+        self.end_headers()
+        return f
+
+    def copyfile(self, source, outputfile) -> None:  # noqa: ANN001
+        if self.left is None:
+            return super().copyfile(source, outputfile)
+        while self.left > 0:
+            chunk = source.read(min(1 << 20, self.left))
+            if not chunk:
+                break
+            outputfile.write(chunk)
+            self.left -= len(chunk)

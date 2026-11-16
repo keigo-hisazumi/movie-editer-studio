@@ -16,11 +16,12 @@ python3.12 -m venv .venv
 
 ## 使い方
 
-1. movie-editer で確認用の動画と波形を作る（`prepare` でも作られる）
+1. movie-editer でトピックのカットを作る（`/cut`。波形も作られる）。アプリは元動画（`topic_XX/cut.json` の場所）をそのまま再生する
+   - 元動画の再生・コマ送りが重いときだけ、確認用の動画（30fps・高さ 960）を作る。あればアプリはそちらを使う
 
-   ```bash
-   .venv/bin/python -m shorts proxy <動画パス>
-   ```
+     ```bash
+     .venv/bin/python -m shorts proxy <動画パス>
+     ```
 
 2. アプリを開き、つなぐ serve を設定する
    - Mac（movie-editer と同じ PC）：「movie-editer のフォルダ」を選ぶ。serve が動いていなければアプリが起動し、アプリを閉じると止める（ターミナルで起動した serve はそのまま使う）

@@ -20,7 +20,7 @@ TOPIC = {
     "segments": [{"id": 0, "start": 10.0, "end": 12.0, "text": "えっ待って", "words": []},
                  {"id": 1, "start": 15.0, "end": 16.0, "text": "関係ない話", "words": []},
                  {"id": 2, "start": 20.0, "end": 21.0, "text": "うそでしょ", "words": []}],
-    "media": {"proxy.mp4": None, "peaks.json": None},
+    "media": {"video": None, "proxy.mp4": None, "peaks.json": None},
 }
 
 
@@ -41,7 +41,7 @@ class Fake(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         if self.path == "/api/videos":
-            return self._json(200, [{"name": "20261017", "proxy": False, "peaks": False,
+            return self._json(200, [{"name": "20261017", "video": False, "proxy": False, "peaks": False,
                                      "topics": [{"topic": 2, "title": "ホラーで叫ぶ", "revision": 1, "by": "ai",
                                                  "step": "draft"}]}])
         if self.path == "/api/v/20261017/t/2":

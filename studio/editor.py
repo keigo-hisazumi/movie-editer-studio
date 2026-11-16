@@ -60,6 +60,7 @@ from .track import caption_pieces as _pieces
 MAX_CHARS = 9  # 字幕 1 行の文字数の目安（movie-editer の subtitle.max_chars_per_line）
 NEW_CAPTION_SEC = 1  # 足す字幕の長さ（秒）
 TICK_MS = 15  # 再生中に位置を見る間隔
+FRAME_MS = 30  # 動画のコマを絵にする間隔の下限（ミリ秒。30fps ほど）
 SEEK_WAIT_MS = 300  # 区間の頭へ飛んだ後、位置が届くのを待つ長さ
 PEEK_MS = 1500  # 止めている間に飛んだとき、その位置のコマが届くのを待つ長さ
 
@@ -86,6 +87,13 @@ class VideoView(QWidget):
         super().__init__()
         self.sink = QVideoSink(self)
         self.sink.videoFrameChanged.connect(self._frame)
+        # コマを絵にする（toImage）のは 1 秒に FRAME_RATE_MAX 回まで。元動画（1206x2622・最大 60fps）をそのまま再生すると、
+        # 全部のコマを絵にするのは重いので、間のコマは飛ばす（最後に届いたコマは必ず描く）
+        self.pending: QVideoFrame | None = None
+        self.last = QElapsedTimer()
+        self.draw_timer = QTimer(self)
+        self.draw_timer.setSingleShot(True)
+        self.draw_timer.timeout.connect(self._draw_pending)
         self.image: QImage | None = None
         self.text = ""  # 字幕
         self.message = ""  # 動画が無い・再生できないときの知らせ
@@ -93,7 +101,21 @@ class VideoView(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def _frame(self, frame: QVideoFrame) -> None:
-        if frame.isValid():
+        if not frame.isValid():
+            return
+        self.pending = frame
+        if self.draw_timer.isActive():
+            return
+        wait = 0 if not self.last.isValid() else max(0, FRAME_MS - self.last.elapsed())
+        if wait == 0:
+            self._draw_pending()
+        else:
+            self.draw_timer.start(wait)
+
+    def _draw_pending(self) -> None:
+        frame, self.pending = self.pending, None
+        if frame is not None:
+            self.last.restart()
             img = frame.toImage()
             if not img.isNull():
                 self.image = img
@@ -354,11 +376,13 @@ class Editor(QWidget):
                                    else QHeaderView.ResizeMode.ResizeToContents)
 
     def _load_media(self) -> None:
-        url = (self.data.get("media") or {}).get("proxy.mp4")
+        # 元動画をそのまま再生する。確認用の動画（shorts proxy で作る。元動画が重いとき用）があればそちらを使う
+        media = self.data.get("media") or {}
+        url = media.get("proxy.mp4") or media.get("video")
         if url:
             self.player.setSource(QUrl(self.api.url(url)))
         else:
-            self.view.set_message("確認用の動画がありません（Mac で shorts proxy を実行）")
+            self.view.set_message("元動画が見つかりません（topic_XX/cut.json の場所。動画を動かしたなら /cut で作り直す）")
 
     def destroy_editor(self) -> None:
         QApplication.instance().removeEventFilter(self)

@@ -138,7 +138,7 @@ class Home(QWidget):
         for v in videos:
             if not v["topics"]:
                 continue
-            top = QTreeWidgetItem([v["name"], "" if v["proxy"] else "確認用の動画なし（shorts proxy で作る）", ""])
+            top = QTreeWidgetItem([v["name"], "" if v.get("video") or v["proxy"] else "元動画が見つからない", ""])
             for t in v["topics"]:
                 state = ("edit.json なし" if t["revision"] is None
                          else f"版 {t['revision']}（{'人' if t['by'] == 'human' else 'AI'}・{t['step'] or ''}）")
