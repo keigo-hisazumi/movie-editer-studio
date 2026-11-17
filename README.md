@@ -4,7 +4,12 @@ movie-editer（`shorts`）の AI が作ったカットと字幕を、Filmora を
 
 ## 入れ方
 
-GitHub の Actions の「Build」の成果物（Artifacts）から、Mac は `movie-editer-studio-mac.zip`、Windows は `movie-editer-studio-windows.zip` をダウンロードし、1回展開するとアプリが出てきます（Mac の Safari では自動で展開されます）。署名していないので、初回は Mac なら右クリック ▸ 開く、Windows なら「詳細情報 ▸ 実行」で開きます。
+GitHub の Releases の「[最新版](https://github.com/keigo-hisazumi/movie-editer-studio/releases/tag/latest)」からダウンロードします。main にマージするたびに自動で置き直すので、いつも同じリンクで最新のアプリが取れます（GitHub にログインした状態で開きます）。
+
+- Mac：[movie-editer-studio-mac.zip](https://github.com/keigo-hisazumi/movie-editer-studio/releases/download/latest/movie-editer-studio-mac.zip)
+- Windows：[movie-editer-studio-windows.zip](https://github.com/keigo-hisazumi/movie-editer-studio/releases/download/latest/movie-editer-studio-windows.zip)
+
+1回展開するとアプリが出てきます（Mac の Safari では自動で展開されます）。署名していないので、初回は Mac なら右クリック ▸ 開く、Windows なら「詳細情報 ▸ 実行」で開きます。
 
 ソースから動かすとき（Python 3.12）：
 

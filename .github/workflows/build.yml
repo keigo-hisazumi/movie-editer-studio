@@ -1,4 +1,9 @@
 # アプリの書き出し：Mac の .app と Windows の .exe を PyInstaller で作り、Actions の成果物（Artifacts）に置く
+# main への push（マージ）のときは、GitHub の Releases の「最新版」（タグ latest）にも置き直す。
+# ダウンロードの URL はいつも同じ（README の「入れ方」）：
+#   https://github.com/<owner>/<repo>/releases/download/latest/movie-editer-studio-mac.zip
+#   https://github.com/<owner>/<repo>/releases/download/latest/movie-editer-studio-windows.zip
+# 「最新版」はプレリリースにする（Release Drafter が前の版とみなさず、v0.x のリリースノートの下書きが崩れないように）
 # （署名はしていない。初回は Mac なら右クリック ▸ 開く、Windows なら「詳細情報 ▸ 実行」で開く）
 
 name: Build
@@ -26,6 +31,9 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    permissions:
+      # Releases の「最新版」に置くため（main への push のときだけ使う）
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,3 +75,30 @@ jobs:
           path: movie-editer-studio-${{ runner.os == 'macOS' && 'mac' || 'windows' }}.zip
           archive: false
           retention-days: 30
+      - name: Releases の「最新版」に置く（main への push のときだけ）
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ZIP: movie-editer-studio-${{ runner.os == 'macOS' && 'mac' || 'windows' }}.zip
+        run: |
+          # 「最新版」が無ければ作る（Mac と Windows が同時に作ろうとして片方が失敗しても、もう有ればよい）
+          if ! gh release view latest >/dev/null 2>&1; then
+            gh release create latest --prerelease --title "最新版" --notes "準備中" --target "$GITHUB_SHA" \
+              || gh release view latest >/dev/null
+          fi
+          # タグ latest をこのコミットに付け替える（どちらの OS が先に来ても同じコミットになる）
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+          # 同じ名前のファイルを置き直す（URL は変わらない）
+          gh release upload latest "$ZIP" --clobber
+          short="${GITHUB_SHA:0:7}"
+          gh release edit latest --prerelease --title "最新版" --notes "$(cat <<NOTES
+          main の最新のコミット（[${short}](https://github.com/${GH_REPO}/commit/${GITHUB_SHA})）から自動で作ったアプリです。main にマージするたびに置き直します。
+
+          - Mac：movie-editer-studio-mac.zip
+          - Windows：movie-editer-studio-windows.zip
+
+          ダウンロードして1回展開するとアプリが出てきます（Mac の Safari では自動で展開されます）。署名していないので、初回は Mac なら右クリック ▸ 開く、Windows なら「詳細情報 ▸ 実行」で開きます。
+          NOTES
+          )"
