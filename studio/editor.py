@@ -10,6 +10,8 @@
              Ctrl(⌘)+Z 取り消し／Ctrl(⌘)+S 保存
 キー（カット）：X 選んだ文を外す・戻す／[ ] いまの位置を区間の頭・終わりにする
 キー（字幕）：I O いまの位置を字幕の頭・終わりにする／/ いまの位置で分ける／N いまの位置に足す／Delete 消す
+再生中・フレーム送り・タイムラインのクリックで位置が動くと、字幕の一覧の選択がその位置の字幕に付いていく
+（字幕の文字を入力している間は動かさない）
 """
 from __future__ import annotations
 
@@ -488,7 +490,8 @@ class Editor(QWidget):
 
     # ------------------------------------------------------------ 位置と再生
 
-    def seek(self, f: float, from_playback: bool = False) -> None:
+    def seek(self, f: float, from_playback: bool = False, follow: bool = False) -> None:
+        """元動画のフレーム f へ。再生中と follow のときは、字幕の一覧の選択をその位置の字幕に付いていかせる"""
         self.src = max(0, round(f))
         if not from_playback:
             self.seek_target = self.src
@@ -496,7 +499,36 @@ class Editor(QWidget):
             self.player.setPosition(int((self.src + 0.5) / self.fps * 1000))  # フレームの真ん中に合わせる
             if not self.playing:
                 self._peek()
+        if self.playing or follow:
+            self.follow_caption()
         self.update_pos()
+
+    def editing_text(self) -> bool:
+        """字幕の文字を入力している最中か"""
+        w = QApplication.focusWidget()
+        return (self.caps.state() == QAbstractItemView.State.EditingState
+                or isinstance(w, QLineEdit) and self.caps.isAncestorOf(w))
+
+    def follow_caption(self) -> None:
+        """いまの位置に出ている字幕を選び、一覧のその行が見えるようにする（Filmora の字幕の編集と同じ）。
+
+        字幕の無い所では前に選んだ字幕のまま。文字を入力している間は、入力を邪魔しないように動かさない。
+        """
+        i = tl.caption_at(self.captions, self.src)
+        if i < 0 or i == self.cap or self.editing_text():
+            return
+        if self.mode == "short" and tl.src_to_out(self.keeps, self.src) is None:
+            return  # ショートの表示で外した所（字幕は出ていない）
+        self.cap = i
+        self.typing = False
+        self.caret = None
+        self._filling = True
+        self.caps.setCurrentCell(i, 1)
+        self.caps.selectRow(i)
+        self._filling = False
+        item = self.caps.item(i, 1)
+        if item is not None:
+            self.caps.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
 
     def _peek(self) -> None:
         if self.player.source().isEmpty() or self.player.mediaStatus() in (
@@ -530,7 +562,7 @@ class Editor(QWidget):
 
     def seek_click(self, f: float) -> None:
         self.pause()
-        self.seek(f)
+        self.seek(f, follow=True)
 
     def _on_status(self, status: QMediaPlayer.MediaStatus) -> None:
         if status == QMediaPlayer.MediaStatus.LoadedMedia:
@@ -556,11 +588,11 @@ class Editor(QWidget):
         """ショートの位置で n フレーム動かす（元動画の表示なら元動画で）"""
         self.pause()
         if self.mode == "source":
-            return self.seek(self.src + n)
+            return self.seek(self.src + n, follow=True)
         out = tl.src_to_out(self.keeps, self.src)
         if out is None:
             out = self._nearest_out()
-        self.seek(tl.out_to_src(self.keeps, max(0, min(tl.total_frames(self.keeps) - 1, out + n))))
+        self.seek(tl.out_to_src(self.keeps, max(0, min(tl.total_frames(self.keeps) - 1, out + n))), follow=True)
 
     def _nearest_out(self) -> int:
         """外した所にいるとき、次に残る所のショートの位置"""

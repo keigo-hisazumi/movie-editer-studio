@@ -253,3 +253,41 @@ def test_export_saves_first(qapp, serve, monkeypatch):
     assert len(fake.saved) == 1 and fake.exported == [2]
     assert shown and "studio.srt" in shown[0]
     e.destroy_editor()
+
+
+def test_follow_caption(qapp):
+    """再生中・フレーム送り・タイムラインのクリックで、字幕の一覧の選択がいまの位置の字幕に付いていく"""
+    e = make(qapp)
+    e.cap = -1
+    e.render()
+    e.seek_click(605)  # タイムラインのクリック
+    assert e.cap == 1 and e.caps.currentRow() == 1
+    press(e, Qt.Key.Key_Return)  # 頭へ（字幕 0 の所）
+    press(e, Qt.Key.Key_Right)
+    assert e.cap == 0 and e.caps.currentRow() == 0
+    # 再生中は位置が届くたびに付いていく
+    e.playing = True
+    e.seek(610, from_playback=True)
+    assert e.cap == 1 and e.caps.currentRow() == 1
+    # 字幕の無い所では前に選んだ字幕のまま
+    e.set_mode("source")
+    e.seek(450, from_playback=True)
+    assert e.cap == 1
+    e.playing = False
+    # 位置を動かすだけ（seek）では付いていかない（一覧の行をクリックして選んだ字幕を保つ）
+    e._click_cap(0, 1)
+    e.seek(610)
+    assert e.cap == 0
+    e.destroy_editor()
+
+
+def test_follow_caption_not_while_typing(qapp):
+    """字幕の文字を入力している間は、選択を動かさない"""
+    e = make(qapp)
+    e.edit_caption(0)
+    assert e.editing_text()
+    e.playing = True
+    e.seek(610, from_playback=True)
+    assert e.cap == 0
+    e.playing = False
+    e.destroy_editor()
