@@ -55,7 +55,7 @@ def test_paused_preview_shows_frame(qapp):
     data = copy.deepcopy(TOPIC)
     data["edit"]["keeps"] = [{"start": 6, "end": 30}, {"start": 40, "end": 55}]
     data["edit"]["captions"] = [{"start": 6, "end": 20, "text": "えっ待って"}]
-    data["media"] = {"proxy.mp4": "sample", "peaks.json": None}
+    data["media"] = {"video": "sample", "proxy.mp4": None, "peaks.json": None}
     e = Editor(FileApi("http://127.0.0.1:9"), "20261017", 2, data, None)
     e.resize(1000, 700)
     e.show()
