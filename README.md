@@ -1,6 +1,16 @@
 # movie-editer-studio
 
-movie-editer（`shorts`）の AI が作ったカットと字幕を、Filmora を使わずに人がフレーム単位で直す Mac・Windows のアプリです（Qt / PySide6）。ファイルの読み書きは movie-editer の `shorts serve` の API に頼み、このアプリは表示と操作だけを持ちます。
+movie-editer の AI が作ったカットと字幕を、Filmora を使わずに人がフレーム単位で直す Mac・Windows のアプリです。
+
+## 主な機能
+
+- movie-editer の `shorts serve` につなぎ、動画ごとのトピックの一覧から開く（この PC の serve が動いていなければアプリが起動する）
+- 元動画を見ながら、ショート（外した所を飛ばす）と元動画（そのまま）の 2 通りで再生する
+- 動画編集ソフトのようなタイムライン（目盛り・字幕・映像・音声の波形）で、区間と字幕の長さをドラッグで変える
+- 区間と字幕の分割・削除、字幕の文字の直し・分ける・つなぐ・足す
+- 再生中・フレーム送りで、字幕の一覧の選択がいまの位置の字幕に付いていく
+- 直したカットと字幕を `topic_XX/edit.json` の新しい版として保存する（movie-editer-schema の形を確かめてから）
+- 「XML に書き出す」で、Filmora・Premiere 用の XML と字幕を書き出し直す
 
 ## 入れ方
 
@@ -9,130 +19,110 @@ GitHub の Releases の「[最新版](https://github.com/keigo-hisazumi/movie-ed
 - Mac：[movie-editer-studio-mac.zip](https://github.com/keigo-hisazumi/movie-editer-studio/releases/download/latest/movie-editer-studio-mac.zip)
 - Windows：[movie-editer-studio-windows.zip](https://github.com/keigo-hisazumi/movie-editer-studio/releases/download/latest/movie-editer-studio-windows.zip)
 
-1回展開するとアプリが出てきます（Mac の Safari では自動で展開されます）。署名していないので、初回は Mac なら右クリック ▸ 開く、Windows なら「詳細情報 ▸ 実行」で開きます。
-
-ソースから動かすとき（Python 3.12）：
-
-```bash
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -e ".[dev]"
-.venv/bin/python -m studio
-```
+1 回展開するとアプリが出てきます（Mac の Safari では自動で展開されます）。署名していないので、初回は Mac なら右クリック ▸ 開く、Windows なら「詳細情報 ▸ 実行」で開きます。Windows は WebView2（Windows 10・11 に入っている）を使います。
 
 ## 使い方
 
 1. movie-editer でトピックのカットを作る（`/cut`。波形も作られる）。アプリは元動画（`topic_XX/cut.json` の場所）をそのまま再生する
-   - 元動画の再生・コマ送りが重いときだけ、確認用の動画（30fps・高さ 960）を作る。あればアプリはそちらを使う
-
-     ```bash
-     .venv/bin/python -m shorts proxy <動画パス>
-     ```
-
 2. アプリを開き、つなぐ serve を設定する
    - Mac（movie-editer と同じ PC）：「movie-editer のフォルダ」を選ぶ。serve が動いていなければアプリが起動し、アプリを閉じると止める（ターミナルで起動した serve はそのまま使う）
    - Windows など別の PC：Mac で `.venv/bin/python -m shorts serve --lan` を起動し、そのとき出る URL（例 `http://<名前>.local:8765`）を「serve の URL」に入れる
 3. トピックをダブルクリックで開いて直し、保存する（`topic_XX/edit.json` の新しい版になる。前の版は `topic_XX/edits/` に残る。ほかで保存されていたら保存せずに知らせる）
-4. 直し終わったら movie-editer で Filmora・Premiere 用の XML と字幕を書き出す
+4. 直し終わったら「XML に書き出す」を押す（movie-editer の `shorts export <動画パス> <トピックID>` と同じ）
 
-   ```bash
-   .venv/bin/python -m shorts export <動画パス> <トピックID>
-   ```
+## 動画が再生できないとき
+
+アプリは OS の WebView（Mac は Safari と同じ WebKit、Windows は Edge と同じ WebView2）の `<video>` で再生します。
+
+- Windows で元動画（iPhone の画面録画の HEVC）が再生できないときは、「HEVC ビデオ拡張機能」を Microsoft Store から入れるか、movie-editer で確認用の動画（H.264・30fps・高さ 960）を作る。あればアプリはそちらを使う
+
+  ```bash
+  .venv/bin/python -m shorts proxy <動画パス>
+  ```
+
+- 元動画の再生・コマ送りが重いときも、同じく確認用の動画を作る
+- アプリだけで再生できるかは、ターミナルで次を実行すると確かめられる（結果はいまのフォルダの `self-check.log` にも書く）
+
+  ```bash
+  # Mac
+  "/Applications/movie-editer studio.app/Contents/MacOS/"* --self-check <動画>
+  # Windows（PowerShell）
+  & ".\movie-editer studio.exe" --self-check <動画>
+  ```
+
+- 一覧からトピックを開けないなど思わぬエラーは、理由を画面に出し、記録にも書く（Mac は `~/Library/Logs/movie-editer studio.log`、Windows は `%LOCALAPPDATA%\io.github.keigo-hisazumi.movie-editer-studio\movie-editer studio.log`。画面に場所が出る）
 
 ## 操作
 
 再生は「ショート」（外した所を飛ばす）と「元動画」（そのまま）の 2 通りです。
 
-- 共通：`Space` 再生・停止（字幕の文字の入力中以外。日本語入力がオンでも効く）、`←` `→` 1 フレーム（`Shift` で 10 フレーム）、`Return` タイムラインの頭へ、`B` いまの位置で区間と字幕を分割、`Shift` + `Z` タイムラインの全体を表示、`Tab` ショートと元動画の切り替え、`Ctrl`（`⌘`）+ `Z` 取り消し、`Ctrl`（`⌘`）+ `S` 保存（メモは聞かない）。下のタイムライン（目盛り・字幕・映像・音声の波形）をクリック・ドラッグするとその位置へ動き、字幕をクリックするとその字幕を選ぶ。字幕・映像・音声のクリップの端をドラッグすると長さを変えられる（カーソルが頭は [、終わりは ] になる。隣り合う境目では、マウスがある側のクリップを動かす。映像・音声は残す区間。ショートの表示では後ろが詰まる。字幕をほかの字幕に重ねると、重なった方の字幕の重なる所が削られ、すっぽり重なった字幕は消える）。映像・音声のクリップをダブルクリックすると選ばれ（白い枠）、`Delete` でその区間を消せる（最後の 1 つは消さない。`Esc` で選ぶのをやめる）。字幕のクリップをダブルクリックすると、右上の一覧でその字幕の文字を直し始める。ホイールで横にスクロール、`T`（拡大）・`R`（縮小）・`Ctrl`（`⌘`）+ ホイール・右下のつまみで拡大・縮小（ホイールの向きは一般のソフトと逆）、「全体」で全体を表示
+- 共通：`Space` 再生・停止（字幕の文字の入力中以外。日本語入力がオンでも効く）、`←` `→` 1 フレーム（`Shift` で 10 フレーム）、`Return` タイムラインの頭へ、`B` いまの位置で区間と字幕を分割、`Shift` + `Z` タイムラインの全体を表示、`Tab` ショートと元動画の切り替え、`Ctrl`（`⌘`）+ `Z` 取り消し、`Ctrl`（`⌘`）+ `S` 保存（メモは聞かない）
+- タイムライン（目盛り・字幕・映像・音声の波形）：クリック・ドラッグでその位置へ動き、字幕をクリックするとその字幕を選ぶ。字幕・映像・音声のクリップの端をドラッグすると長さを変えられる（カーソルが頭は [、終わりは ] になる。隣り合う境目では、マウスがある側のクリップを動かす。映像・音声は残す区間。ショートの表示では後ろが詰まる。字幕をほかの字幕に重ねると、重なった方の字幕の重なる所が削られ、すっぽり重なった字幕は消える）。映像・音声のクリップをダブルクリックすると選ばれ（白い枠）、`Delete` でその区間を消せる（最後の 1 つは消さない。`Esc` で選ぶのをやめる）。字幕のクリップをダブルクリックすると、右上の一覧でその字幕の文字を直し始める。ホイールで横にスクロール、`T`（拡大）・`R`（縮小）・`Ctrl`（`⌘`）+ ホイール・右下のつまみで拡大・縮小（ホイールの向きは一般のソフトと逆）、「全体」で全体を表示
 - 区間：`[` `]` でいまの区間の頭・終わりをいまの位置に
-- 右上の字幕の一覧：クリックで選び、ダブルクリックでその場で文字を直す（9 文字を超えると文字数が色付きになる）。`I` `O` 選んだ字幕（無ければいま出ている字幕）の頭・終わりをいまの位置に、`/` いまの位置で分ける（文字は直していた欄のカーソルの位置、無ければ長さの比で分ける）、`N` いまの位置に 1 秒の字幕を足す、`Delete` 選んだ字幕を消す、「次とつなぐ」。再生中・フレーム送り・タイムラインのクリックで位置が動くと、選んだ字幕（一覧の選択とタイムラインの字幕の枠）がいまの位置の字幕に付いていき、一覧はその行が真ん中に来るようにスクロールする（字幕の無い所では前の字幕のまま。字幕の文字を入力している間は動かさない）
+- 右上の字幕の一覧：クリックで選び、ダブルクリックでその場で文字を直す（`Return` で確定、`Esc` で直す前に戻す。9 文字を超えると文字数が色付きになる）。`I` `O` 選んだ字幕（無ければいま出ている字幕）の頭・終わりをいまの位置に、`/` いまの位置で分ける（文字は直していた欄のカーソルの位置、無ければ長さの比で分ける）、`N` いまの位置に 1 秒の字幕を足す、`Delete` 選んだ字幕を消す、「次とつなぐ」。再生中・フレーム送り・タイムラインのクリックで位置が動くと、選んだ字幕（一覧の選択とタイムラインの字幕の枠）がいまの位置の字幕に付いていき、一覧はその行が真ん中に来るようにスクロールする（字幕の無い所では前の字幕のまま。字幕の文字を入力している間は動かさない）
 - 動画の上に、いま出ている字幕を重ねて出す（ショートの表示では外した所の字幕は出さない）
 - 字幕は元動画のフレームで持つので、あとでカットを直しても元の発話に付いたまま。字幕だけを直して保存した版は `step: captions`、カットも直した版は `step: cut`
-- 保存する前に movie-editer-schema の `EditDoc` の形を確かめる
 - 「XML に書き出す」：いまのカットと字幕を、Filmora・Premiere 用の XML（`<動画名>_topic_XX_studio.xml`）と `studio.srt` に書き出し直す（serve が `topic_XX/` に書く。保存していない変更は先に保存する。movie-editer の serve が書き出しの API（`POST /api/v/<動画名>/t/<ID>/export`）を持っている必要がある）
-- 動画を開けない・再生できないときは、動画の所に理由を出す。アプリだけで再生できるかは、ターミナルで `"/Applications/movie-editer studio.app/Contents/MacOS/movie-editer studio" --self-check <確認用の動画>` を実行すると確かめられる（結果はいまのフォルダの `self-check.log` にも書く）
-- 一覧からトピックを開けないなど思わぬエラーは、理由を画面に出し、記録にも書く（Mac は `~/Library/Logs/movie-editer studio.log`、Windows は `%LOCALAPPDATA%\movie-editer\movie-editer studio\movie-editer studio.log` あたり。画面に場所が出る）
+
+## 技術スタック
+
+- Tauri（Mac は WKWebView、Windows は WebView2）
+- Rust（serve への HTTP・serve の起動と停止・記録・self-check）
+- TypeScript・Vite（画面。フレームワークは使わない）
+- Ajv（movie-editer-schema の EditDoc の検査。ビルドのときに検査の関数を作る）
+- Vitest・jsdom（テスト）
+- GitHub Actions・GitHub Releases（Mac・Windows のアプリの書き出しと配布）
 
 ## 開発
 
-- `studio/timeline.py`：区間と字幕のフレームの計算（movie-editer の `shorts/edit.py` と同じ数え方）
-- `studio/editor.py`：編集の画面、`studio/app.py`：一覧と設定、`studio/api.py`：serve の API、`studio/server.py`：serve の起動、`studio/track.py`：下のタイムライン
-- テスト：`QT_QPA_PLATFORM=offscreen STUDIO_NO_AUDIO=1 .venv/bin/python -m pytest`、Lint：`.venv/bin/python -m ruff check .`
-- `.github/workflows/build.yml` が Mac・Windows のアプリを書き出す（PyInstaller）
+### 必要な環境
 
----
+- Node.js 22
+- Rust（stable）
+- Tauri の前提（Mac は Xcode の Command Line Tools、Windows は WebView2 と Visual Studio の C++ ビルドツール、Linux は `libwebkit2gtk-4.1-dev` など）
 
-## テンプレートについて
+### コマンド
 
-このリポジトリは新しいプロジェクト用のテンプレートです。AI アシスタント向けの指示書、Issue / PR テンプレート、CI/CD の雛形、エディタ設定、各種ドット・ガバナンスファイルを含みます。
+```bash
+npm ci
+npm run tauri dev       # アプリを開発用に起動する（画面は書き換えるとすぐ反映）
+npm run tauri build     # アプリを書き出す
+npm test                # 画面のテスト（Vitest）
+npm run type-check      # 型チェック
+npm run build           # 画面だけをビルドする
+cd src-tauri && cargo test && cargo clippy --all-targets   # アプリ側のテストと Lint
+```
 
-## AI アシスタント運用方針
+## ディレクトリ構成
 
-このテンプレートは **Claude をメインの AI アシスタント** として利用し、**GitHub Copilot をサブツール** として併用するワークフローを想定しています。開発ルールの **正本は [`AGENTS.md`](./AGENTS.md)** で、各ツール向けの指示書はそれを参照する構成です。
+```text
+src/
+  main.ts            一覧と編集画面の切り替え・閉じる前の確かめ・思わぬエラーの記録
+  selfcheck.ts       --self-check（書き出したアプリで動画を再生できるか）
+  editor/editor.ts   編集画面（再生・字幕の一覧・キー・保存・書き出し）
+  editor/track.ts    下のタイムライン（canvas）
+  editor/player.ts   動画の再生（<video>）
+  lib/timeline.ts    区間と字幕のフレームの計算（movie-editer の shorts/edit.py と同じ数え方）
+  lib/api.ts         serve の API
+  lib/native.ts      Rust 側に頼むこと
+  ui/home.ts         設定とトピックの一覧
+src-tauri/
+  src/lib.rs         serve への HTTP・記録・self-check の入口
+  src/serve.rs       serve の起動と停止
+  src/selfcheck.rs   self-check の HTTP サーバー（Range 対応）
+  tauri.conf.json    アプリの設定（ウィンドウ・CSP・書き出し）
+tests/               画面のテスト（serve と再生は偽物に差し替える）
+tests/data/          self-check で再生する動画
+```
 
-| ツール | ファイル | 役割 |
-| --- | --- | --- |
-| 汎用 AI エージェント | [`AGENTS.md`](./AGENTS.md) | **正本**。すべてのルールはここに集約 |
-| Claude Code | [`CLAUDE.md`](./CLAUDE.md) | `AGENTS.md` を参照 |
+## デプロイ
 
-## 含まれるもの
+- `.github/workflows/build.yml` が PR と main への push のたびに Mac の .app と Windows の .exe を書き出し、`--self-check` で動画を再生できるか確かめる
+- main への push（マージ）のときは、Releases の「最新版」（タグ `latest`）の `movie-editer-studio-mac.zip`・`movie-editer-studio-windows.zip` を置き直す
 
-### AI 向け指示書
+## 開発ルール
 
-- `AGENTS.md` — **正本**（汎用 AI エージェント向け）
-- `CLAUDE.md` — Claude Code 向け（`AGENTS.md` を参照）
-
-### Issue / PR
-
-- `.github/ISSUE_TEMPLATE/` — バグ報告 / 機能要望 / 質問テンプレート
-- `.github/PULL_REQUEST_TEMPLATE.md` — PR テンプレート（日本語）
-- `.github/CODEOWNERS` — レビュー自動アサイン
-- `CONTRIBUTING.md` / `SECURITY.md` — 貢献ガイドとセキュリティポリシー
-
-### CI/CD
-
-- `.github/workflows/ci.yml` — PR 時の lint / typecheck / test / build（`package.json` がある場合のみ実行）
-- `.github/workflows/actionlint.yml` — workflow 自体の Lint（公式バイナリをバージョン固定で実行。`.github/actionlint-matcher.json` でエラー行に注釈を付ける）
-- `.github/workflows/markdownlint.yml` — Markdown の書き方チェック（ルールは `.markdownlint-cli2.jsonc`、内容は `AGENTS.md` の「Markdown の書き方」）
-- `.github/workflows/codeql.yml` — セキュリティスキャン（workflow 定義は常に、JS/TS は ソースがある場合のみ解析）
-- `.github/workflows/deploy.yml` — main への PR マージ時に GitHub Pages へデプロイ
-- `.github/workflows/pr-preview.yml` — PR ごとのプレビュー環境（`pr-<番号>/`）を gh-pages にデプロイし、URL と QR コードをコメント
-- `.github/workflows/release-drafter.yml` + `.github/release-drafter.yml` — main へのマージごとにリリースノート草案を更新（PR タイトルの Conventional Commits プレフィックスで分類）
-- `.github/workflows/pr-title.yml` — PR タイトルが Conventional Commits 形式（例: `feat: 〜`）かを検証
-- `.github/workflows/screenshot.yml` — PR スクリーンショット用 Playwright 雛形
-- `.github/dependabot.yml` — 依存関係の自動更新
-
-### 環境差異の吸収
-
-- `.editorconfig` — エディタ間のインデント／改行統一
-- `.markdownlint-cli2.jsonc` — Markdown の書き方ルール
-- `.gitattributes` — テキスト/バイナリ・改行コードの正規化
-- `.gitignore` — OS / 言語 / ビルド成果物
-- `.vscode/extensions.json`, `.vscode/settings.json` — VSCode 推奨拡張・設定
-
-### その他
-
-- `LICENSE` — MIT
-
-## テンプレートの使い方
-
-1. このテンプレートから新しいリポジトリを作成（GitHub の **Use this template** ボタン、または clone）。
-2. `README.md` を `AGENTS.md` の「README の構成」に沿って書き換え、`CODEOWNERS`、`LICENSE` のプロジェクト名や著作権者を書き換える。
-3. 言語/フレームワークが決まったら以下を有効化:
-   - `.github/workflows/ci.yml` は `lint` / `type-check` / `build` の npm script を実行する（`lint` / `type-check` はスクリプトがなければスキップ、`build` は必須）。テストを追加したら Test ジョブのプレースホルダーを差し替える
-   - `.github/workflows/codeql.yml` で JS/TS 以外の言語を解析する場合は detect ジョブの判定を追加
-   - `.github/workflows/deploy.yml` / `pr-preview.yml` のベースパス変数名（既定は Vite の `VITE_BASE_PATH`）と `publish_dir` を確認
-   - Vite の場合は `vite.config.ts` に `base: process.env.VITE_BASE_PATH ?? '/'` を追加する（未設定だと GitHub Pages 上でアセットが 404 になり画面が真っ白になる）
-   - `.github/workflows/screenshot.yml` は Playwright 導入後、リポジトリ変数 `ENABLE_SCREENSHOT` を `true` に設定して有効化
-   - `.github/dependabot.yml` の対応する `package-ecosystem` のコメントアウトを外す（typescript-eslint を使わない場合は typescript の `ignore` を削除）
-4. **リポジトリ作成後の手動設定**（テンプレートに含められないため `README` で案内）:
-   - `main` ブランチ保護ルールを設定（PR 必須、CI パス必須、force push 禁止）
-   - GitHub Actions の権限を `Read and write` 許可（Release Drafter / GitHub Pages デプロイ / PR プレビュー用）
-   - GitHub Pages のソースを `gh-pages` ブランチに設定（`deploy.yml` / `pr-preview.yml` を使う場合）
-   - Secret スキャン / Dependabot Alerts を有効化
-
-## VSCode 環境
-
-VSCode をエディタとして使うワークフローを想定しています。`.vscode/extensions.json` に記載の拡張をインストールすると、Lint / Format / Spell check が即座に動きます。
+[`AGENTS.md`](./AGENTS.md)（正本）を参照してください。
 
 ## ライセンス
 
