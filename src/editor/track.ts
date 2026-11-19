@@ -35,7 +35,6 @@ const C = {
   audio: '#1f5e45',
   wave: '#5fd39a',
   waveOut: '#5b5e66',
-  playhead: '#ff5a5f',
 };
 
 export type Mode = 'short' | 'source';
@@ -69,6 +68,8 @@ export type TrimFn = (kind: ClipKind, i: number, edge: Edge, delta: number, comm
 export class TrackView {
   readonly el: HTMLElement;
   readonly canvas: HTMLCanvasElement;
+  /** いまの位置の線（canvas に描かず、CSS の transform で動かす。再生中に canvas を描き直さないように） */
+  private readonly playhead: HTMLElement;
   private readonly bar: HTMLInputElement;
   private readonly slider: HTMLInputElement;
 
@@ -96,8 +97,9 @@ export class TrackView {
   private h = 0;
   private trim: [ClipKind, number, Edge, number] | null = null; // 端をドラッグ中（種類・番号・端・押した x）
   private drag = false;
-  private cache: HTMLCanvasElement | null = null;
-  private cacheKey = '';
+  private paintedKey = '';
+  /** 描く中身（区間・字幕・波形・選択）が変わるたびに増やす（描き直すかどうかの判定に使う） */
+  private version = 0;
   private frame = 0;
   private syncing = false;
 
@@ -110,6 +112,15 @@ export class TrackView {
     this.el.className = 'track';
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'track-canvas';
+    this.playhead = document.createElement('div');
+    this.playhead.className = 'playhead';
+    const heads = document.createElement('div');
+    heads.className = 'track-heads';
+    heads.style.left = `${HEAD_W}px`;
+    heads.append(this.playhead);
+    const area = document.createElement('div');
+    area.className = 'track-area';
+    area.append(this.canvas, heads);
     const row = document.createElement('div');
     row.className = 'track-ctl';
     this.bar = Object.assign(document.createElement('input'), { type: 'range', className: 'track-bar', min: '0', max: '0', step: 'any' });
@@ -129,7 +140,7 @@ export class TrackView {
     for (const w of [this.bar, this.slider]) w.tabIndex = -1;
     this.bar.addEventListener('input', () => this.scrolled(Number(this.bar.value)));
     this.slider.addEventListener('input', () => this.slid(Number(this.slider.value)));
-    this.el.append(this.canvas, row);
+    this.el.append(area, row);
 
     this.canvas.addEventListener('mousedown', (e) => this.mouseDown(e));
     this.canvas.addEventListener('dblclick', (e) => this.doubleClick(this.pos(e)));
@@ -175,6 +186,25 @@ export class TrackView {
     playing = false,
     spf = 1,
   ): void {
+    if (
+      mode === this.mode &&
+      fps === this.fps &&
+      keeps === this.keeps &&
+      captions === this.captions &&
+      selected === this.selected &&
+      peaks === this.peaks &&
+      Math.max(1e-6, spf) === this.spf &&
+      rng[0] === this.range[0] &&
+      Math.max(rng[1], rng[0] + 1) === this.range[1]
+    ) {
+      // 位置だけが変わった（再生中はここを毎コマ通る）：線を動かすだけで、区間・字幕・波形は作り直さない
+      this.src = src;
+      this.head = this.toAxis(src);
+      if (!this.trimming && (playing || this.follow)) this.keepHeadVisible(playing);
+      this.update();
+      return;
+    }
+    this.version += 1;
     const changedAxis =
       mode !== this.mode || rng[0] !== this.range[0] || rng[1] !== this.range[1] || tl.totalFrames(keeps) !== tl.totalFrames(this.keeps);
     this.mode = mode;
@@ -265,6 +295,7 @@ export class TrackView {
   selectClip(clip: Clip | null): void {
     if (clip?.[0] !== this.selClip?.[0] || clip?.[1] !== this.selClip?.[1]) {
       this.selClip = clip;
+      this.version += 1;
       this.update();
     }
   }
@@ -437,8 +468,9 @@ export class TrackView {
     return out;
   }
 
-  /** 次のコマで描き直す（何度呼んでも 1 回） */
+  /** 次のコマで描き直す（何度呼んでも 1 回）。いまの位置の線はすぐ動かす */
   update(): void {
+    this.placeHead();
     if (this.frame || typeof requestAnimationFrame === 'undefined') return;
     this.frame = requestAnimationFrame(() => {
       this.frame = 0;
@@ -446,52 +478,30 @@ export class TrackView {
     });
   }
 
+  /** いまの位置の線を動かす（DOM の transform だけ。描き直さない） */
+  private placeHead(): void {
+    const x = this.x(this.head) - HEAD_W;
+    const visible = x >= -8 && x <= this.w - HEAD_W + 8;
+    if (this.playhead.hidden === visible) this.playhead.hidden = !visible;
+    if (visible) this.playhead.style.transform = `translateX(${x.toFixed(2)}px)`;
+  }
+
+  /** トラックを描く。見ている範囲・中身が変わったときだけ（再生中に毎回描くと重い） */
   paint(): void {
     const dpr = window.devicePixelRatio || 1;
     const W = Math.round(this.w * dpr);
     const H = Math.round(this.h * dpr);
+    const key = `${this.left}|${this.ppf}|${W}|${H}|${this.mode}|${this.version}`;
+    if (key === this.paintedKey) return;
     if (this.canvas.width !== W || this.canvas.height !== H) {
       this.canvas.width = W;
       this.canvas.height = H;
     }
     const g = this.canvas.getContext('2d');
     if (!g || W === 0 || H === 0) return;
-    // いまの位置の線以外は、見ている範囲・中身が変わったときだけ描き直す（再生中に毎回描くと重い）
-    const key = JSON.stringify([this.left, this.ppf, W, H, this.mode, this.waveKey, this.blocks, this.selected, this.selClip]);
-    if (key !== this.cacheKey || !this.cache) {
-      this.cacheKey = key;
-      this.cache ??= document.createElement('canvas');
-      this.cache.width = W;
-      this.cache.height = H;
-      const cg = this.cache.getContext('2d')!;
-      cg.setTransform(dpr, 0, 0, dpr, 0, 0);
-      this.paintTracks(cg);
-    }
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, W, H);
-    g.drawImage(this.cache, 0, 0);
+    this.paintedKey = key;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.save();
-    g.beginPath();
-    g.rect(HEAD_W, 0, this.w - HEAD_W, this.h);
-    g.clip();
-    const hx = this.x(this.head);
-    g.strokeStyle = C.playhead;
-    g.lineWidth = 1.5;
-    g.beginPath();
-    g.moveTo(hx, 4);
-    g.lineTo(hx, this.h);
-    g.stroke();
-    g.fillStyle = C.playhead;
-    g.beginPath();
-    g.moveTo(hx - 6, 2);
-    g.lineTo(hx + 6, 2);
-    g.lineTo(hx + 6, 10);
-    g.lineTo(hx, 16);
-    g.lineTo(hx - 6, 10);
-    g.closePath();
-    g.fill();
-    g.restore();
+    this.paintTracks(g);
   }
 
   private font(px: number): string {

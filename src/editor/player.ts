@@ -2,7 +2,7 @@
  * 動画の再生（WebView の <video>）。編集画面はこの形（Player）だけを使うので、テストでは差し替える。
  *
  * - 止めている間に位置を変えても、<video> はその位置のコマを出す（Qt の版のように少しだけ再生して確かめる必要は無い）
- * - 再生中は画面のコマごと（requestAnimationFrame）にいまの時刻を知らせる
+ * - 再生中は動画の新しいコマごと（requestVideoFrameCallback）にいまの時刻を知らせる
  * - serve の動画（元動画・確認用の動画）は HTTP の Range で読む。CORS は要らない（<video> は crossOrigin を付けない）
  */
 export interface Player {
@@ -44,6 +44,7 @@ export class VideoPlayer implements Player {
   onEnded: (() => void) | null = null;
   onResize: (() => void) | null = null;
   private raf = 0;
+  private vfc = 0;
   private loaded = false;
 
   constructor() {
@@ -115,8 +116,24 @@ export class VideoPlayer implements Player {
     this.setSource(null);
   }
 
+  /**
+   * 再生中、新しいコマが出るたびにその時刻を知らせる（requestVideoFrameCallback。Safari 15.4・Chromium にある）。
+   * 無ければ画面の描き直しごと（requestAnimationFrame）。コマの出ない画面の描き直しでは何もしないので、無駄な処理をしない
+   */
   private startLoop(): void {
-    if (this.raf) return;
+    if (this.raf || this.vfc) return;
+    const v = this.el as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
+    };
+    if (typeof v.requestVideoFrameCallback === 'function') {
+      const onFrame = (_now: number, meta: { mediaTime: number }): void => {
+        if (!this.vfc) return;
+        this.vfc = v.requestVideoFrameCallback!(onFrame);
+        if (!v.paused) this.onTick?.(meta.mediaTime);
+      };
+      this.vfc = v.requestVideoFrameCallback(onFrame);
+      return;
+    }
     const loop = (): void => {
       this.raf = requestAnimationFrame(loop);
       if (!this.el.paused) this.onTick?.(this.el.currentTime);
@@ -127,5 +144,8 @@ export class VideoPlayer implements Player {
   private stopLoop(): void {
     cancelAnimationFrame(this.raf);
     this.raf = 0;
+    const v = this.el as HTMLVideoElement & { cancelVideoFrameCallback?: (h: number) => void };
+    if (this.vfc) v.cancelVideoFrameCallback?.(this.vfc);
+    this.vfc = 0;
   }
 }

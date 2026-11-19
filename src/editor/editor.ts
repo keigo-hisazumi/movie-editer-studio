@@ -96,6 +96,8 @@ export class Editor {
     summary: HTMLElement;
     tc: HTMLElement;
     pos: HTMLElement;
+    posSrc: HTMLElement;
+    posOut: HTMLElement;
     play: HTMLButtonElement;
     mode: HTMLButtonElement;
     sub: HTMLElement;
@@ -139,6 +141,8 @@ export class Editor {
       summary: h('div', { className: 'summary' }),
       tc: h('span', { className: 'tc mono' }),
       pos: h('div', { className: 'pos' }),
+      posSrc: h('span'),
+      posOut: h('span'),
       play: button('▶︎ 再生', 'Space', () => this.toggle()),
       mode: button('', 'Tab', () => this.setMode(this.mode === 'short' ? 'source' : 'short')),
       sub: h('div', { className: 'sub' }),
@@ -154,6 +158,7 @@ export class Editor {
       ),
     };
     this.ui = ui;
+    ui.pos.append(ui.posSrc, '　', ui.posOut);
     const title = h('span', { className: 'title' }, h('b', { textContent: `${name} topic_${String(topic).padStart(2, '0')}` }), ` ${data.cut?.title ?? ''}`);
     const top = h(
       'header',
@@ -327,19 +332,24 @@ export class Editor {
     });
   }
 
+  /** 文字を変えるのは中身が変わったときだけ（再生中は毎コマ呼ぶので、余計な並べ直しをさせない） */
+  private setText(el: HTMLElement, text: string): void {
+    if (el.textContent !== text) el.textContent = text;
+  }
+
   updatePos(): void {
     const out = tl.srcToOut(this.keeps, this.src);
-    this.ui.pos.innerHTML =
-      `元動画 ${clock(this.src / this.fps)}（${this.src}f）` +
-      (out === null ? `　<span class="warn">外した所</span>` : `　ショート ${frames(out, this.fps)}`);
-    this.ui.play.textContent = this.playing ? '❚❚ 停止' : '▶︎ 再生';
+    this.setText(this.ui.posSrc, `元動画 ${clock(this.src / this.fps)}（${this.src}f）`);
+    this.setText(this.ui.posOut, out === null ? '外した所' : `ショート ${frames(out, this.fps)}`);
+    this.ui.posOut.classList.toggle('warn', out === null);
+    this.setText(this.ui.play, this.playing ? '❚❚ 停止' : '▶︎ 再生');
     const i = tl.captionAt(this.captions, this.src);
     const visible = i >= 0 && (this.mode === 'source' || out !== null);
     this.subText = visible ? this.captions[i].text : '';
-    if (this.ui.sub.textContent !== this.subText) this.ui.sub.textContent = this.subText;
-    this.ui.sub.hidden = !this.subText;
+    this.setText(this.ui.sub, this.subText);
+    if (this.ui.sub.hidden !== !this.subText) this.ui.sub.hidden = !this.subText;
     const total = tl.totalFrames(this.keeps);
-    this.ui.tc.textContent = `${timecode(out ?? this.nearestOut(), this.fps)} / ${timecode(total, this.fps)}`;
+    this.setText(this.ui.tc, `${timecode(out ?? this.nearestOut(), this.fps)} / ${timecode(total, this.fps)}`);
     this.timeline.setData(this.mode, this.fps, this.keeps, this.captions, this.cap, this.peaks, this.range, this.src, this.playing, this.peakSpf);
   }
 
