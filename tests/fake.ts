@@ -76,6 +76,7 @@ export class FakePlayer implements Player {
   size: [number, number] = [1080, 1920];
   playing = false;
   seeks: number[] = [];
+  cued: number | null = null;
   source: string | null = null;
   onTick: ((sec: number) => void) | null = null;
   onMessage: ((text: string) => void) | null = null;
@@ -88,6 +89,9 @@ export class FakePlayer implements Player {
   seek(sec: number) {
     this.time = sec;
     this.seeks.push(sec);
+  }
+  cue(sec: number | null, _from?: number) {
+    this.cued = sec;
   }
   play() {
     this.playing = true;

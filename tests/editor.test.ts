@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { Editor, type KeyPress } from '../src/editor/editor';
 import { FakeDialogs, FakePlayer, FakeServe, TOPIC } from './fake';
 
@@ -304,6 +304,7 @@ test('ショートの再生：区間の終わりで次の区間へ飛び、最�
   e.seekTarget = null;
   e.tick(330 / 30);
   expect(e.src).toBe(330);
+  expect(player.cued).toBeCloseTo(600.5 / 30); // 次の区間の頭を裏で用意しておく（飛ぶ先と同じ時刻）
   e.tick(360 / 30); // 1 つめの区間（300〜360）の終わり
   expect(e.src).toBe(600);
   expect(player.time).toBeCloseTo(600.5 / 30);
@@ -311,6 +312,37 @@ test('ショートの再生：区間の終わりで次の区間へ飛び、最�
   e.tick(630 / 30); // 最後の区間の終わり
   expect(e.playing).toBe(false);
   expect(e.src).toBe(629);
+});
+
+test('ショートの再生：区間の終わりちょうどに次の区間へ飛ぶ。元動画で隣り合う区間は飛ばない', () => {
+  vi.useFakeTimers();
+  try {
+    const { e, player } = make();
+    e.data.media.video = '/media/20261017/video';
+    e.doc.keeps = [
+      { start: 300, end: 360 },
+      { start: 360, end: 400 },
+      { start: 600, end: 630 },
+    ];
+    e.play();
+    e.seekTarget = null;
+    e.tick(359 / 30); // 区間の最後のコマ：終わりの時刻に次の区間へ進む用意をする
+    expect(player.cued).toBeNull(); // 次は続いているので飛ばない
+    const seeks = player.seeks.length;
+    vi.advanceTimersByTime(40);
+    expect(e.playKeep).toBe(1);
+    expect(player.seeks.length).toBe(seeks);
+    e.tick(370 / 30);
+    expect(player.cued).toBeCloseTo(600.5 / 30);
+    e.tick(399.2 / 30);
+    vi.advanceTimersByTime(40);
+    expect(e.playKeep).toBe(2);
+    expect(player.time).toBeCloseTo(600.5 / 30);
+    e.pause();
+    expect(player.cued).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('動画の場所：確認用の動画があればそちら、無ければ元動画。どちらも無ければ知らせる', () => {

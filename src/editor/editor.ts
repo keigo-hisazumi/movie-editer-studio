@@ -83,6 +83,7 @@ export class Editor {
   playKeep = -1;
   seekTarget: number | null = null; // 区間の頭へ飛んでいる間（古い位置で次の区間へ進まないように）
   private seekAt = 0;
+  private keepTimer: ReturnType<typeof setTimeout> | 0 = 0; // 区間の終わりちょうどに次の区間へ飛ぶ
   /** 字幕の文字を直している行（入力欄が出ている間） */
   editingRow: number | null = null;
   private editStart: { caps: Caption[]; undo: number; dirty: boolean } | null = null;
@@ -437,21 +438,54 @@ export class Editor {
       this.seekTarget = null;
     }
     const cur = this.keeps[this.playKeep];
-    if (this.mode === 'short' && cur && f >= cur.end) {
-      // 区間の終わりを過ぎた：並びで次の区間へ（最後なら止める）
-      this.playKeep += 1;
-      if (this.playKeep >= this.keeps.length) {
-        this.pause();
-        this.seek(cur.end - 1);
-        return;
-      }
-      this.seek(this.keeps[this.playKeep].start);
-    } else if (f !== this.src) this.seek(f, true);
+    if (this.mode !== 'short' || !cur) {
+      this.player.cue(null);
+      if (f !== this.src) this.seek(f, true);
+      return;
+    }
+    if (f >= cur.end) {
+      this.nextKeep(this.playKeep);
+      return;
+    }
+    if (f !== this.src) this.seek(f, true);
+    // 次の区間の頭を裏で用意しておき、区間の終わりちょうどに飛ぶ（コマの出る間隔を待つと外した所が 1 コマ映るため）
+    const next = this.keeps[this.playKeep + 1];
+    this.player.cue(next && next.start !== cur.end ? (next.start + 0.5) / this.fps : null, cur.end / this.fps);
+    const left = cur.end / this.fps - sec;
+    if (!this.keepTimer && left < 2 / this.fps) {
+      const k = this.playKeep;
+      this.keepTimer = setTimeout(() => {
+        this.keepTimer = 0;
+        if (this.playing && this.playKeep === k) this.nextKeep(k);
+      }, Math.max(0, left * 1000));
+    }
+  }
+
+  /** 再生中に区間 k の終わりに来た：並びで次の区間へ（最後なら止める） */
+  private nextKeep(k: number): void {
+    this.clearKeepTimer();
+    const cur = this.keeps[k];
+    this.playKeep = k + 1;
+    const next = this.keeps[this.playKeep];
+    if (!next) {
+      this.pause();
+      this.seek(cur.end - 1);
+      return;
+    }
+    // 続いている区間（元動画で隣り合う）なら、飛ばずにそのまま再生を続ける
+    if (next.start !== cur.end) this.seek(next.start);
+  }
+
+  private clearKeepTimer(): void {
+    if (this.keepTimer) clearTimeout(this.keepTimer);
+    this.keepTimer = 0;
   }
 
   pause(): void {
     this.playing = false;
+    this.clearKeepTimer();
     this.player.pause();
+    this.player.cue(null);
     this.updatePos();
   }
 

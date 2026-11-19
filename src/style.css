@@ -206,11 +206,24 @@ input {
   overflow: hidden;
 }
 
+.stage .player {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* 区間の切れ目で入れ替える 2 つの <video>（表を上に重ね、裏で次の区間の頭を用意しておく） */
 .stage .video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
+}
+
+.stage .video.front {
+  z-index: 1;
 }
 
 /* 動画の上に重ねる字幕（白い文字に黒い縁取り） */
