@@ -296,53 +296,54 @@ test('字幕の文字を入力している間は、選択を動かさない', ()
   e.playing = false;
 });
 
-test('ショートの再生：区間の終わりで次の区間へ飛び、最後で止まる', () => {
+test('ショートの再生：いまの位置からの並び（区間の順。隣り合う区間はまとめる）を Player に渡し、最後で止まる', () => {
   const { e, player } = make();
   e.data.media.video = '/media/20261017/video';
+  e.doc.keeps = [
+    { start: 300, end: 360 },
+    { start: 360, end: 400 },
+    { start: 600, end: 630 },
+  ];
+  e.seek(330);
   e.play();
   expect(player.playing).toBe(true);
-  e.seekTarget = null;
-  e.tick(330 / 30);
-  expect(e.src).toBe(330);
-  expect(player.cued).toBeCloseTo(600.5 / 30); // 次の区間の頭を裏で用意しておく（飛ぶ先と同じ時刻）
-  e.tick(360 / 30); // 1 つめの区間（300〜360）の終わり
-  expect(e.src).toBe(600);
-  expect(player.time).toBeCloseTo(600.5 / 30);
-  e.seekTarget = null;
-  e.tick(630 / 30); // 最後の区間の終わり
+  const plan = player.plans.at(-1)!;
+  expect(plan.map((g) => [g.s * 30, g.e * 30].map(Math.round))).toEqual([
+    [330, 400],
+    [600, 630],
+  ]);
+  e.tick(370.2 / 30);
+  expect(e.src).toBe(370);
+  expect(e.playKeep).toBe(1);
+  e.tick(605 / 30);
+  expect([e.src, e.playKeep]).toEqual([605, 2]);
+  // 再生中に区間を直したら、いまの位置から並びを作り直す
+  e.change([{ start: 600, end: 700 }]);
+  expect(player.plans.at(-1)!.map((g) => [g.s * 30, g.e * 30].map(Math.round))).toEqual([[605, 700]]);
+  player.onEnded?.();
   expect(e.playing).toBe(false);
-  expect(e.src).toBe(629);
+  expect(e.src).toBe(699);
 });
 
-test('ショートの再生：区間の終わりちょうどに次の区間へ飛ぶ。元動画で隣り合う区間は飛ばない', () => {
-  vi.useFakeTimers();
-  try {
-    const { e, player } = make();
-    e.data.media.video = '/media/20261017/video';
-    e.doc.keeps = [
-      { start: 300, end: 360 },
-      { start: 360, end: 400 },
-      { start: 600, end: 630 },
-    ];
-    e.play();
-    e.seekTarget = null;
-    e.tick(359 / 30); // 区間の最後のコマ：終わりの時刻に次の区間へ進む用意をする
-    expect(player.cued).toBeNull(); // 次は続いているので飛ばない
-    const seeks = player.seeks.length;
-    vi.advanceTimersByTime(40);
-    expect(e.playKeep).toBe(1);
-    expect(player.seeks.length).toBe(seeks);
-    e.tick(370 / 30);
-    expect(player.cued).toBeCloseTo(600.5 / 30);
-    e.tick(399.2 / 30);
-    vi.advanceTimersByTime(40);
-    expect(e.playKeep).toBe(2);
-    expect(player.time).toBeCloseTo(600.5 / 30);
-    e.pause();
-    expect(player.cued).toBeNull();
-  } finally {
-    vi.useRealTimers();
-  }
+test('元動画の表示の再生は、いまの位置から最後まで', () => {
+  const { e, player } = make();
+  e.data.media.video = '/media/20261017/video';
+  e.setMode('source');
+  e.seek(450);
+  e.play();
+  expect(player.plans.at(-1)).toEqual([{ s: 15, e: Infinity }]);
+});
+
+test('区間の音声（serve の /audio）を読んで Player に渡す', async () => {
+  const fake = new FakeServe();
+  const player = new FakePlayer();
+  const data = structuredClone(TOPIC);
+  data.media.video = '/media/20261017/video';
+  data.media.audio = '/api/v/20261017/t/2/audio';
+  open.push(new Editor(fake.api(), '20261017', 2, data, null, { player, dialogs: new FakeDialogs() }));
+  await vi.waitFor(() => expect(player.audio).not.toBeNull());
+  expect(player.audio![1]).toBe(5);
+  expect(fake.bytesUrls).toEqual(['http://127.0.0.1:8765/api/v/20261017/t/2/audio?start=5.000&end=25.000']);
 });
 
 test('動画の場所：確認用の動画があればそちら、無ければ元動画。どちらも無ければ知らせる', () => {

@@ -15,6 +15,7 @@ import { Api, ApiError, type Peaks, type TopicData } from '../lib/api';
 import { clock, frames, timecode } from '../lib/fmt';
 import * as tl from '../lib/timeline';
 import type { Caption, Edge, Keep } from '../lib/timeline';
+import { buildPlan } from '../lib/plan';
 import { validate } from '../lib/validate';
 import { domDialogs, isOpen, type Dialogs } from '../ui/dialogs';
 import { VideoPlayer, type Player } from './player';
@@ -22,7 +23,6 @@ import { TrackView, type ClipKind, type Mode } from './track';
 
 export const MAX_CHARS = 9; // 字幕 1 行の文字数の目安（movie-editer の subtitle.max_chars_per_line）
 const NEW_CAPTION_SEC = 1; // 足す字幕の長さ（秒）
-const SEEK_WAIT_MS = 300; // 区間の頭へ飛んだ後、位置が届くのを待つ長さ
 
 /** キーの押し方（KeyboardEvent の一部。テストからも渡す） */
 export interface KeyPress {
@@ -47,7 +47,6 @@ const HELP =
   'クリップをダブルクリック → Delete で消す／[ ] いまの位置を区間の頭・終わりに／I O いまの位置を字幕の頭・終わりに／' +
   'N 字幕を足す／Tab ショート・元動画';
 
-const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (Node | string)[]): HTMLElementTagNameMap[K] {
   const el = Object.assign(document.createElement(tag), props);
@@ -81,9 +80,6 @@ export class Editor {
   typing = false;
   playing = false;
   playKeep = -1;
-  seekTarget: number | null = null; // 区間の頭へ飛んでいる間（古い位置で次の区間へ進まないように）
-  private seekAt = 0;
-  private keepTimer: ReturnType<typeof setTimeout> | 0 = 0; // 区間の終わりちょうどに次の区間へ飛ぶ
   /** 字幕の文字を直している行（入力欄が出ている間） */
   editingRow: number | null = null;
   private editStart: { caps: Caption[]; undo: number; dirty: boolean } | null = null;
@@ -212,7 +208,7 @@ export class Editor {
     this.player.onTick = (sec) => this.tick(sec);
     this.player.onMessage = (text) => this.setMessage(text);
     this.player.onLoaded = () => this.seek(this.src);
-    this.player.onEnded = () => this.pause();
+    this.player.onEnded = () => this.ended();
     this.player.onResize = () => this.placeSub();
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.placeSub()).observe(ui.stage);
     window.addEventListener('keydown', this.onKey, true);
@@ -223,8 +219,24 @@ export class Editor {
   private loadMedia(): void {
     // 元動画をそのまま再生する。確認用の動画（shorts proxy で作る。元動画が重いとき用）があればそちらを使う
     const url = this.data.media?.['proxy.mp4'] || this.data.media?.video;
-    if (url) this.player.setSource(this.api.url(url));
-    else this.setMessage('元動画が見つかりません（topic_XX/cut.json の場所。動画を動かしたなら /cut で作り直す）');
+    if (url) {
+      this.player.setSource(this.api.url(url));
+      this.loadAudio();
+    } else this.setMessage('元動画が見つかりません（topic_XX/cut.json の場所。動画を動かしたなら /cut で作り直す）');
+  }
+
+  /**
+   * 区間の切れ目で途切れずに鳴らす音声を読む（トピックの区間。serve が処理済みの声か元動画の音声を切り出す）。
+   * 読めなければ（前の serve など）<video> の音のまま再生する
+   */
+  private loadAudio(): void {
+    const path = this.data.media?.audio;
+    if (!path) return;
+    const [lo, hi] = this.data.range; // 秒
+    this.api
+      .bytes(`${path}?start=${lo.toFixed(3)}&end=${hi.toFixed(3)}`)
+      .then((data) => this.player.setAudio(data, lo))
+      .catch((e: unknown) => console.warn('音声を読めません（<video> の音で再生します）', e));
   }
 
   destroy(): void {
@@ -360,8 +372,6 @@ export class Editor {
   seek(f: number, fromPlayback = false, follow = false): void {
     this.src = Math.max(0, Math.round(f));
     if (!fromPlayback) {
-      this.seekTarget = this.src;
-      this.seekAt = now();
       this.player.seek((this.src + 0.5) / this.fps); // フレームの真ん中に合わせる
     }
     if (this.playing || follow) this.followCaption();
@@ -424,74 +434,47 @@ export class Editor {
     if (this.mode === 'short' && tl.keepIndexAt(this.keeps, this.src) < 0) this.seek(tl.outToSrc(this.keeps, this.nearestOut()));
     this.playing = true;
     this.playKeep = tl.keepIndexAt(this.keeps, this.src);
-    this.player.play();
+    this.player.play(buildPlan(this.keeps, this.fps, this.src, this.mode));
     this.updatePos();
   }
 
-  /** 再生中に、いまの時刻が届いた */
+  /** 再生中に、いまの時刻（元動画の秒）が届いた。区間の切れ目は Player が並びどおりにつなぐ */
   tick(sec: number): void {
     if (!this.playing) return;
-    const f = Math.floor(sec * this.fps);
-    if (this.seekTarget !== null) {
-      // 飛んだ先の位置が届くのを待つ（届かないこともあるので、少し待ったら進める）
-      if (Math.abs(sec * this.fps - this.seekTarget) >= 2 && now() - this.seekAt < SEEK_WAIT_MS) return;
-      this.seekTarget = null;
-    }
-    const cur = this.keeps[this.playKeep];
-    if (this.mode !== 'short' || !cur) {
-      this.player.cue(null);
-      if (f !== this.src) this.seek(f, true);
-      return;
-    }
-    if (f >= cur.end) {
-      this.nextKeep(this.playKeep);
-      return;
-    }
+    const f = Math.floor(sec * this.fps + 1e-6);
+    const i = tl.keepIndexAt(this.keeps, f);
+    if (i >= 0) this.playKeep = i;
     if (f !== this.src) this.seek(f, true);
-    // 次の区間の頭を裏で用意しておき、区間の終わりちょうどに飛ぶ（コマの出る間隔を待つと外した所が 1 コマ映るため）
-    const next = this.keeps[this.playKeep + 1];
-    this.player.cue(next && next.start !== cur.end ? (next.start + 0.5) / this.fps : null, cur.end / this.fps);
-    const left = cur.end / this.fps - sec;
-    if (!this.keepTimer && left < 2 / this.fps) {
-      const k = this.playKeep;
-      this.keepTimer = setTimeout(() => {
-        this.keepTimer = 0;
-        if (this.playing && this.playKeep === k) this.nextKeep(k);
-      }, Math.max(0, left * 1000));
-    }
   }
 
-  /** 再生中に区間 k の終わりに来た：並びで次の区間へ（最後なら止める） */
-  private nextKeep(k: number): void {
-    this.clearKeepTimer();
-    const cur = this.keeps[k];
-    this.playKeep = k + 1;
-    const next = this.keeps[this.playKeep];
-    if (!next) {
-      this.pause();
-      this.seek(cur.end - 1);
-      return;
-    }
-    // 続いている区間（元動画で隣り合う）なら、飛ばずにそのまま再生を続ける
-    if (next.start !== cur.end) this.seek(next.start);
-  }
-
-  private clearKeepTimer(): void {
-    if (this.keepTimer) clearTimeout(this.keepTimer);
-    this.keepTimer = 0;
+  /** 並びの最後まで再生した（ショートの表示なら最後の区間の終わりのコマで止める） */
+  private ended(): void {
+    if (!this.playing) return;
+    const last = this.keeps[this.keeps.length - 1];
+    this.pause();
+    if (this.mode === 'short' && last) this.seek(last.end - 1);
   }
 
   pause(): void {
     this.playing = false;
-    this.clearKeepTimer();
     this.player.pause();
-    this.player.cue(null);
     this.updatePos();
   }
 
   setMode(m: Mode): void {
     this.mode = m;
     this.render();
+    this.replan();
+  }
+
+  /** 再生中に区間や表示が変わった：いまの位置から並びを作り直して再生を続ける */
+  private replan(): void {
+    if (!this.playing) return;
+    if (this.mode === 'short' && tl.keepIndexAt(this.keeps, this.src) < 0) {
+      this.pause();
+      return;
+    }
+    this.player.play(buildPlan(this.keeps, this.fps, this.src, this.mode));
   }
 
   // ------------------------------------------------------------ 直す
@@ -507,6 +490,7 @@ export class Editor {
     this.dirty = true;
     this.typing = false;
     this.render();
+    if (keeps !== null) this.replan();
   }
 
   doUndo(): void {
@@ -517,6 +501,7 @@ export class Editor {
     if (this.cap >= this.captions.length) this.cap = -1;
     this.typing = false;
     this.render();
+    this.replan();
   }
 
   /** [ ]：いまの位置を区間の頭・終わりにする（区間の中ならその区間、外した所なら隣の区間を広げる） */

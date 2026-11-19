@@ -1,6 +1,6 @@
 //! movie-editer-studio のアプリ側（Rust）。画面（src/）から頼まれること：
 //!
-//! - serve への HTTP（`http_request`）：serve は CORS のヘッダーを返さないので、画面の fetch でなくここから呼ぶ
+//! - serve への HTTP（`http_request`・バイナリは `http_bytes`）：serve は CORS のヘッダーを返さないので、画面の fetch でなくここから呼ぶ
 //! - serve の起動と停止（`start_serve`・`serve_running`・`serve_log`・`stop_serve`）：movie-editer のフォルダの
 //!   `.venv` の python で `-m shorts serve` を起動する。アプリを閉じるときに止める（ターミナルで起動した serve は止めない）
 //! - 思わぬエラーの記録（`write_log`）：Mac は ~/Library/Logs/movie-editer studio.log、Windows は AppData の中
@@ -43,6 +43,30 @@ async fn http_request(url: String, method: String, body: Option<String>, timeout
     let status = r.status().as_u16();
     let bytes = r.bytes().await.map_err(|e| e.to_string())?;
     Ok(HttpResponse { status, body: String::from_utf8_lossy(&bytes).into_owned() })
+}
+
+/// バイナリ（音声など）を GET で読む。画面には ArrayBuffer で渡す（JSON にしない）。HTTP のエラーは serve の理由を Err で返す
+#[tauri::command]
+async fn http_bytes(url: String, timeout_ms: u64) -> Result<tauri::ipc::Response, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(timeout_ms.max(1)))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let r = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let status = r.status().as_u16();
+    let bytes = r.bytes().await.map_err(|e| e.to_string())?;
+    if status >= 400 {
+        return Err(error_text(status, &bytes));
+    }
+    Ok(tauri::ipc::Response::new(bytes.to_vec()))
+}
+
+/// serve のエラーの返事（{"error": "..."}）の理由。読めなければ HTTP の番号
+fn error_text(status: u16, body: &[u8]) -> String {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
+        .unwrap_or_else(|| format!("HTTP {status}"))
 }
 
 #[tauri::command]
@@ -136,6 +160,7 @@ pub fn run() {
         .manage(check)
         .invoke_handler(tauri::generate_handler![
             http_request,
+            http_bytes,
             start_serve,
             serve_running,
             serve_log,
@@ -156,7 +181,13 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::civil_from_days;
+    use super::{civil_from_days, error_text};
+
+    #[test]
+    fn error_text_reads_serve_error() {
+        assert_eq!(error_text(404, "{\"error\": \"ありません\"}".as_bytes()), "ありません");
+        assert_eq!(error_text(500, b"oops"), "HTTP 500");
+    }
 
     #[test]
     fn days_to_date() {

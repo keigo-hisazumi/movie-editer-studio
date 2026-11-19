@@ -5,7 +5,7 @@
  * その URL（例 http://<名前>.local:8765）を設定する。
  */
 import type { EditDoc } from 'movie-editer-schema';
-import { httpRequest, type HttpResponse } from './native';
+import { httpBytes, httpRequest, type HttpResponse } from './native';
 
 export const TIMEOUT_MS = 15_000;
 
@@ -21,6 +21,7 @@ export class ApiError extends Error {
 
 /** HTTP を呼ぶ手段（テストでは差し替える） */
 export type Transport = (url: string, method: string, body: string | null, timeoutMs: number) => Promise<HttpResponse>;
+export type BytesTransport = (url: string, timeoutMs: number) => Promise<ArrayBuffer>;
 
 export interface TopicSummary {
   topic: number;
@@ -51,7 +52,8 @@ export interface TopicData {
   /** トピックの区間（秒）。元動画の表示の横軸 */
   range: [number, number];
   segments: Segment[];
-  media: { video: string | null; 'proxy.mp4': string | null; 'peaks.json': string | null };
+  /** audio：区間の切れ目で途切れずに鳴らす音声（WAV。前の serve には無い） */
+  media: { video: string | null; audio?: string | null; 'proxy.mp4': string | null; 'peaks.json': string | null };
 }
 
 export interface Peaks {
@@ -87,6 +89,7 @@ export class Api {
   constructor(
     base: string,
     private readonly transport: Transport = httpRequest,
+    private readonly bytesTransport: BytesTransport = httpBytes,
   ) {
     this.base = base.replace(/\/+$/, '');
   }
@@ -147,6 +150,15 @@ export class Api {
   /** いまの edit.json から Filmora・Premiere 用の XML と字幕を topic_XX/ に書き出し直す（serve が書く） */
   export(name: string, topic: number): Promise<ExportResult> {
     return this.call(`/api/v/${part(name)}/t/${topic}/export`, 'POST', {}, 120_000);
+  }
+
+  /** 音声などのバイナリを読む（読めなければ ApiError） */
+  async bytes(path: string, timeoutMs = 120_000): Promise<ArrayBuffer> {
+    try {
+      return await this.bytesTransport(this.url(path), timeoutMs);
+    } catch (e) {
+      throw new ApiError(0, String(e instanceof Error ? e.message : e));
+    }
   }
 
   peaks(path: string): Promise<Peaks> {

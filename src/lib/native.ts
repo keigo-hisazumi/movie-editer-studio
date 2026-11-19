@@ -33,6 +33,14 @@ export async function httpRequest(url: string, method: string, body: string | nu
   }
 }
 
+/** バイナリ（音声など）を GET で読む。読めなければ例外（HTTP のエラーは serve の理由） */
+export async function httpBytes(url: string, timeoutMs: number): Promise<ArrayBuffer> {
+  if (inTauri()) return invoke<ArrayBuffer>('http_bytes', { url, timeoutMs });
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.arrayBuffer();
+}
+
 /** movie-editer のフォルダの serve を起動する（起動できなければ例外。理由は文字列） */
 export const startServe = (repo: string, port: number): Promise<void> => invoke('start_serve', { repo, port });
 /** アプリが起動した serve が動いているか */

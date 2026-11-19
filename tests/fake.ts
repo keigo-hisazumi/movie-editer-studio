@@ -1,7 +1,8 @@
 /** テスト用：serve の代わり（版の確かめ方だけ同じ）と、再生の代わり */
 import type { EditDoc } from 'movie-editer-schema';
-import { Api, type TopicData, type Transport } from '../src/lib/api';
+import { Api, type BytesTransport, type TopicData, type Transport } from '../src/lib/api';
 import type { Player } from '../src/editor/player';
+import type { Seg } from '../src/lib/plan';
 import type { Dialogs, SaveAnswer } from '../src/ui/dialogs';
 
 export const EDIT: EditDoc = {
@@ -41,6 +42,11 @@ export class FakeServe {
   revision = 1;
   calls: { url: string; method: string }[] = [];
 
+  bytesUrls: string[] = [];
+  bytes: BytesTransport = async (url) => {
+    this.bytesUrls.push(url);
+    return new ArrayBuffer(8);
+  };
   transport: Transport = async (url, method, body) => {
     this.calls.push({ url, method });
     const path = new URL(url).pathname;
@@ -66,7 +72,7 @@ export class FakeServe {
   };
 
   api(base = 'http://127.0.0.1:8765'): Api {
-    return new Api(base, this.transport);
+    return new Api(base, this.transport, this.bytes);
   }
 }
 
@@ -76,7 +82,8 @@ export class FakePlayer implements Player {
   size: [number, number] = [1080, 1920];
   playing = false;
   seeks: number[] = [];
-  cued: number | null = null;
+  plans: Seg[][] = [];
+  audio: [ArrayBuffer | null, number] | null = null;
   source: string | null = null;
   onTick: ((sec: number) => void) | null = null;
   onMessage: ((text: string) => void) | null = null;
@@ -90,11 +97,13 @@ export class FakePlayer implements Player {
     this.time = sec;
     this.seeks.push(sec);
   }
-  cue(sec: number | null, _from?: number) {
-    this.cued = sec;
+  setAudio(data: ArrayBuffer | null, start: number) {
+    this.audio = [data, start];
+    return Promise.resolve();
   }
-  play() {
+  play(plan: Seg[]) {
     this.playing = true;
+    this.plans.push(plan);
   }
   pause() {
     this.playing = false;
