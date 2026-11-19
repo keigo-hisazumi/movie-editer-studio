@@ -237,6 +237,7 @@ input {
   paint-order: stroke fill;
   stroke-linejoin: round;
   pointer-events: none;
+  z-index: 2; /* 2 つ重ねた動画（表は z-index: 1）より上に */
 }
 
 .stage .msg {
@@ -249,6 +250,7 @@ input {
   white-space: pre-wrap;
   color: #ddd;
   user-select: text;
+  z-index: 2;
 }
 
 .ctl {
