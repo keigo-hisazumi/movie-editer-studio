@@ -52,8 +52,12 @@ const PREROLL = 0.3;
 /** 音を鳴らし始めるまでの余裕（秒。この間に鳴らす時刻を決めておく） */
 const AUDIO_LEAD = 0.06;
 /** 映像が音とこれ以上ずれたらシークで合わせる（秒）。これより小さければ速さを少し変えて合わせる */
-const HARD_SYNC = 0.3;
-const SOFT_SYNC = 0.02;
+const HARD_SYNC = 0.5;
+const SOFT_SYNC = 0.045;
+/** これより合ったら速さを 1 に戻す（秒） */
+const SYNC_OK = 0.015;
+/** ずれを詰めるときの速さの変え幅（3%。見ても分からない） */
+const RATE_STEP = 0.03;
 /** 切れ目の音のつなぎ目のプチッという音を消すフェード（秒） */
 const FADE = 0.002;
 /** 切れ目で裏が区間の頭に着くのを待つ長さの上限（ミリ秒） */
@@ -92,6 +96,10 @@ export class VideoPlayer implements Player {
   private raf = 0;
   private seq = 0;
   private flipTimer: ReturnType<typeof setTimeout> | 0 = 0;
+  /** 音に合わせるシーク：次にシークしてよい時刻・シークした時刻・シークにかかる時間の見込み（秒） */
+  private hardUntil = 0;
+  private hardAt = 0;
+  private seekCost = 0.3;
   /** 切れ目で、裏が区間の頭に着くのを待っている間（表は止めておく） */
   private hold: { t: number; until: number } | null = null;
   /** 先に再生している裏が出したコマの時刻（分からなければ -1） */
@@ -133,6 +141,10 @@ export class VideoPlayer implements Player {
     v.addEventListener('loadedmetadata', () => v === this.front && this.onResize?.());
     v.addEventListener('resize', () => v === this.front && this.onResize?.());
     v.addEventListener('seeked', () => {
+      if (v === this.front && this.hardAt) {
+        this.seekCost = Math.min(1.5, Math.max(0.05, (performance.now() - this.hardAt) / 1000));
+        this.hardAt = 0;
+      }
       if (v === this.back && this.cuedK >= 0 && !this.prerolling && Math.abs(v.currentTime - this.cueStart) < 0.002) this.cueReady = true;
     });
     v.addEventListener('error', () => {
@@ -327,16 +339,27 @@ export class VideoPlayer implements Player {
     v.requestVideoFrameCallback(onFrame);
   }
 
-  /** 映像を音の時計に合わせる（少しのずれは速さで、大きなずれはシークで） */
+  /**
+   * 映像を音の時計に合わせる。少しのずれは気にせず（速さを毎コマ変えると WebKit・WebView2 は映像がカクつく）、
+   * ずれが SOFT_SYNC を超えたときだけ速さを 1 段だけ変え、ほぼ合ったら 1 に戻す。
+   * 大きくずれたらシークで合わせるが、シークにかかる時間の分だけ先へ飛び、続けてはシークしない（シークが続くと止まって見える）
+   */
   private sync(t: number): void {
     const v = this.front;
     if (v.seeking) return;
     const diff = v.currentTime - t;
-    if (Math.abs(diff) > HARD_SYNC) {
-      v.currentTime = t + 0.03;
+    const now = performance.now();
+    if (Math.abs(diff) > HARD_SYNC && now > this.hardUntil) {
+      this.hardUntil = now + 2000;
+      this.hardAt = now;
       v.playbackRate = 1;
-    } else if (Math.abs(diff) > SOFT_SYNC) v.playbackRate = Math.min(1.1, Math.max(0.9, 1 - diff * 2));
-    else if (v.playbackRate !== 1) v.playbackRate = 1;
+      v.currentTime = t + this.seekCost;
+      return;
+    }
+    let rate = v.playbackRate;
+    if (Math.abs(diff) > SOFT_SYNC) rate = diff > 0 ? 1 - RATE_STEP : 1 + RATE_STEP;
+    else if (Math.abs(diff) < SYNC_OK) rate = 1;
+    if (rate !== v.playbackRate) v.playbackRate = rate;
   }
 
   /** 次の区間の頭を裏で用意し、切れ目の少し前から裏を再生しておく */
