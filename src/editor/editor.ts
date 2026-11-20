@@ -548,8 +548,7 @@ export class Editor {
   goStart(): void {
     this.pause();
     const f = this.mode === 'short' && this.keeps.length ? this.keeps[0].start : Math.trunc(this.data.range[0] * this.fps);
-    this.timeline.left = this.timeline.axisStart() - this.timeline.axisLen();
-    this.timeline.follow = true;
+    this.timeline.scrollToStart();
     this.seek(f);
   }
 

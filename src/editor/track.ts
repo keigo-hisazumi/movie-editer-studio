@@ -407,6 +407,14 @@ export class TrackView {
     this.onSeek(this.toSrc(f));
   }
 
+  /** 見ている範囲をタイムラインの左端に（頭へ戻るとき。いまの位置の線も左端に出る） */
+  scrollToStart(): void {
+    this.left = this.axisStart() - this.axisLen();
+    this.follow = true;
+    this.syncBar(); // 左端（少しの余白）にそろえる
+    this.update();
+  }
+
   private keepHeadVisible(playing: boolean): void {
     const vis = this.viewW() / this.ppf;
     if (this.head < this.left || this.head > this.left + vis) {
