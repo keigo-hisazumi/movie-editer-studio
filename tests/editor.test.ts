@@ -252,44 +252,50 @@ test('一覧の字幕はクリックで選ぶだけ。直し始めるのはダ�
   expect(e.editingRow).toBe(1);
 });
 
-test('「Premiere に書き出す」：前の serve（Premiere の依頼が無い）では、XML と字幕を書き出して知らせるだけ', async () => {
-  const { e, fake, dialogs } = make();
-  e.deleteClip('keep', 1);
-  expect(await e.export()).toBe(true);
-  expect(fake.saved.length).toBe(1);
-  expect(fake.exported).toEqual([2]);
-  expect(dialogs.shown.at(-1)![2]).toContain('studio.srt');
+test('「ショートを作る」：前の serve（ショートの API が無い）では、movie-editer を新しくするよう知らせる', async () => {
+  const fake = new FakeServe();
+  const orig = fake.transport;
+  fake.transport = async (url, method, body, t) =>
+    url.endsWith('/short') ? { status: 404, body: JSON.stringify({ error: '見つかりません' }) } : orig(url, method, body, t);
+  const { e, dialogs } = make(fake);
+  expect(await e.makeShort()).toBe(false);
+  expect(dialogs.shown.at(-1)!.slice(0, 2)).toEqual(['warn', 'ショートを作れませんでした']);
+  expect(dialogs.shown.at(-1)![2]).toContain('movie-editer を新しく');
 });
 
-test('「Premiere に書き出す」：パネルがプロジェクトを作り終えるまで待って知らせる', async () => {
+test('「ショートを作る」：保存してからショートを作り、パネルがプロジェクトを作り終えるまで待って知らせる', async () => {
   const fake = new FakeServe();
   fake.premiere = ['queued', 'running', 'done'];
-  fake.premiereMessage = 'プロジェクトを作りました: 20261017_topic_02_r0001.prproj';
+  fake.premiereMessage = 'プロジェクトを作りました: 20261017_topic_02_short_r0002.prproj';
   const { e, dialogs } = make(fake);
-  expect(await e.export()).toBe(true);
+  e.deleteClip('keep', 1);
+  expect(await e.makeShort()).toBe(true);
+  expect(fake.saved.length).toBe(1);
+  expect(fake.shorts).toEqual([2]);
   const [kind, title, msg] = dialogs.shown.at(-1)!;
   expect([kind, title]).toEqual(['info', 'Premiere のプロジェクトを作りました']);
-  expect(msg).toContain('r0001.prproj');
+  expect(msg).toContain('41.3 秒');
+  expect(msg).toContain('short_r0002.prproj');
   const btn = [...e.el.querySelectorAll('button')].find((b) => b.title.includes('.prproj'))!;
   expect(btn.disabled).toBe(false);
-  expect(btn.textContent).toBe('Premiere に書き出す');
+  expect(btn.textContent).toBe('ショートを作る');
 });
 
-test('「Premiere に書き出す」：作れなかった・Premiere が開いていないときも知らせる', async () => {
+test('「ショートを作る」：作れなかった・Premiere が開いていないときも知らせる', async () => {
   const fake = new FakeServe();
   fake.premiere = ['running', 'error'];
   fake.premiereMessage = 'XML を読み込めませんでした';
   let { e, dialogs } = make(fake);
-  await e.export();
+  await e.makeShort();
   expect(dialogs.shown.at(-1)!.slice(0, 2)).toEqual(['warn', 'Premiere のプロジェクトを作れませんでした']);
   expect(dialogs.shown.at(-1)![2]).toContain('XML を読み込めませんでした');
 
   const idle = new FakeServe();
   idle.premiere = ['queued'];
   ({ e, dialogs } = make(idle, { premiereWaitMs: 5 }));
-  await e.export();
-  expect(dialogs.shown.at(-1)!.slice(0, 2)).toEqual(['info', 'XML と字幕を書き出しました']);
-  expect(dialogs.shown.at(-1)![2]).toContain('20261017_topic_02_r0001.prproj');
+  await e.makeShort();
+  expect(dialogs.shown.at(-1)!.slice(0, 2)).toEqual(['info', 'ショートの XML と字幕を作りました']);
+  expect(dialogs.shown.at(-1)![2]).toContain('20261017_topic_02_short_r0001.prproj');
 });
 
 test('再生中・フレーム送り・タイムラインのクリックで、字幕の一覧の選択がいまの位置の字幕に付いていく', () => {

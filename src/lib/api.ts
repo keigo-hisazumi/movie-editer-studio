@@ -82,6 +82,13 @@ export interface ExportResult {
   premiere?: PremiereJob | null;
 }
 
+export interface ShortResult extends ExportResult {
+  /** ショートの長さ（秒） */
+  duration: number;
+  /** 効果音・画像を Claude Code に決めてもらったときの報告（決めていなければ null） */
+  decided?: string | null;
+}
+
 // Python の urllib.parse.quote(url, safe=":/?#[]@!$&'()*+,;=%~") と同じ（ASCII 以外と空白などを %XX にする）
 const SAFE = new Set(":/?#[]@!$&'()*+,;=%~-._".split(''));
 export function quoteUrl(url: string): string {
@@ -163,6 +170,14 @@ export class Api {
   /** いまの edit.json から Filmora・Premiere 用の XML と字幕を topic_XX/ に書き出し直す（serve が書く） */
   export(name: string, topic: number): Promise<ExportResult> {
     return this.call(`/api/v/${part(name)}/t/${topic}/export`, 'POST', {}, 120_000);
+  }
+
+  /**
+   * いまの edit.json から、BGM・効果音・画像・画面の文字を付けたショートを作り、Premiere のプロジェクトの依頼を出す。
+   * 効果音・画像がまだ決まっていなければ serve が Claude Code に決めてもらうので、数分かかる
+   */
+  short(name: string, topic: number): Promise<ShortResult> {
+    return this.call(`/api/v/${part(name)}/t/${topic}/short`, 'POST', {}, 30 * 60_000);
   }
 
   /** 音声などのバイナリを読む（読めなければ ApiError） */

@@ -10,7 +10,7 @@ movie-editer の AI が作ったカットと字幕を、Filmora を使わずに�
 - 区間と字幕の分割・削除、字幕の文字の直し・分ける・つなぐ・足す
 - 再生中・フレーム送りで、字幕の一覧の選択がいまの位置の字幕に付いていく
 - 直したカットと字幕を `topic_XX/edit.json` の新しい版として保存する（movie-editer-schema の形を確かめてから）
-- 「Premiere に書き出す」で、Premiere のプロジェクト（.prproj）を作る（XML と字幕も書き出し直す）
+- 「ショートを作る」で、縦型レイアウト・字幕・BGM・効果音・画像・画面の文字を付けたショートを Premiere のプロジェクト（.prproj）として作る
 
 ## 入れ方
 
@@ -28,7 +28,7 @@ GitHub の Releases の「[最新版](https://github.com/keigo-hisazumi/movie-ed
    - Mac（movie-editer と同じ PC）：「movie-editer のフォルダ」を選ぶ。serve が動いていなければアプリが起動し、アプリを閉じると止める（ターミナルで起動した serve はそのまま使う）
    - Windows など別の PC：Mac で `.venv/bin/python -m shorts serve --lan` を起動し、そのとき出る URL（例 `http://<名前>.local:8765`）を「serve の URL」に入れる
 3. トピックをダブルクリックで開いて直し、保存する（`topic_XX/edit.json` の新しい版になる。前の版は `topic_XX/edits/` に残る。ほかで保存されていたら保存せずに知らせる）
-4. 直し終わったら「Premiere に書き出す」を押す（movie-editer の `shorts export <動画パス> <トピックID>` と同じ。Premiere を開き、movie-editer-premiere のパネルを入れておく）
+4. 直し終わったら「ショートを作る」を押す（movie-editer の `shorts short <動画パス> <トピックID>` と同じ。Premiere を開き、movie-editer-premiere のパネルを入れておく）
 
 ## 動画が再生できないとき
 
@@ -62,7 +62,7 @@ GitHub の Releases の「[最新版](https://github.com/keigo-hisazumi/movie-ed
 - 右上の字幕の一覧：クリックで選び、ダブルクリックでその場で文字を直す（`Return` で確定、`Esc` で直す前に戻す。9 文字を超えると文字数が色付きになる）。`I` `O` 選んだ字幕（無ければいま出ている字幕）の頭・終わりをいまの位置に、`/` いまの位置で分ける（文字は直していた欄のカーソルの位置、無ければ長さの比で分ける）、`N` いまの位置に 1 秒の字幕を足す、`Delete` 選んだ字幕を消す、「次とつなぐ」。再生中・フレーム送り・タイムラインのクリックで位置が動くと、選んだ字幕（一覧の選択とタイムラインの字幕の枠）がいまの位置の字幕に付いていき、一覧はその行が真ん中に来るようにスクロールする（字幕の無い所では前の字幕のまま。字幕の文字を入力している間は動かさない）
 - 動画の上に、いま出ている字幕を重ねて出す（ショートの表示では外した所の字幕は出さない）
 - 字幕は元動画のフレームで持つので、あとでカットを直しても元の発話に付いたまま。字幕だけを直して保存した版は `step: captions`、カットも直した版は `step: cut`
-- 「Premiere に書き出す」：いまのカットと字幕を XML（`<動画名>_topic_XX_studio.xml`）と `studio.srt` に書き出し直し（serve が `topic_XX/` に書く。保存していない変更は先に保存する）、Premiere の拡張パネル（[movie-editer-premiere](https://github.com/keigo-hisazumi/movie-editer-premiere)）がそこから Premiere のプロジェクト `<動画名>_topic_XX_rNNNN.prproj` を作るのを最長 60 秒待って結果を知らせる。版ごとに別のファイルなので、Premiere で仕上げたプロジェクトは上書きしない。Premiere が開いていなければ、次に開いたときに作られる（movie-editer の serve が書き出しの API（`POST /api/v/<動画名>/t/<ID>/export`）を持っている必要がある）
+- 「ショートを作る」：いまのカットと字幕から、serve が movie-editer の `short` と同じショート（`<動画名>_topic_XX_short_Edit.xml`（縦型レイアウト・BGM・効果音・画像・画面の文字）・`edit.srt`）を `topic_XX/` に作り直し（字幕は Premiere で編集できる字幕トラックにし、画面の文字は自分で一度作った型のプロジェクト `output/_premiere/overlay.prproj` のシーケンスを重ねる（見出し1行目は Premiere で直す）。保存していない変更は先に保存する。BGM・効果音・画像は `cuts.yaml` のそのトピックの項目で、効果音・画像がまだ無ければ serve が Claude Code に決めてもらう。そのときは数分かかる）、Premiere の拡張パネル（[movie-editer-premiere](https://github.com/keigo-hisazumi/movie-editer-premiere)）がそこから Premiere のプロジェクト `<動画名>_topic_XX_short_rNNNN.prproj` を作るのを最長 60 秒待って結果を知らせる。版ごとに別のファイルなので、Premiere で仕上げたプロジェクトは上書きしない。Premiere が開いていなければ、次に開いたときに作られる（movie-editer の serve がショートの API（`POST /api/v/<動画名>/t/<ID>/short`）を持っている必要がある）
 
 ## 技術スタック
 
