@@ -11,7 +11,7 @@
  * （字幕の文字を入力している間は動かさない）
  */
 import type { EditDoc } from 'movie-editer-schema';
-import { Api, ApiError, type Peaks, type TopicData } from '../lib/api';
+import { Api, ApiError, type Peaks, type PremiereJob, type TopicData } from '../lib/api';
 import { clock, frames, timecode } from '../lib/fmt';
 import * as tl from '../lib/timeline';
 import type { Caption, Edge, Keep } from '../lib/timeline';
@@ -40,7 +40,14 @@ export interface EditorOptions {
   onBack?: () => void;
   /** 未保存の変更の有無・版が変わった（ウィンドウの題などに） */
   onDirty?: (dirty: boolean) => void;
+  /** 書き出しの後、Premiere のプロジェクトができるのを待つ長さ（ミリ秒）と、見に行く間隔 */
+  premiereWaitMs?: number;
+  premierePollMs?: number;
 }
+
+const PREMIERE_WAIT_MS = 60_000;
+const PREMIERE_POLL_MS = 2_000;
+const baseName = (p: string): string => p.split(/[\\/]/).pop() ?? p;
 
 const HELP =
   'Space 再生・停止／← → 1 フレーム（Shift で 10）／Return 頭へ／B いまの位置で分割／T R 拡大・縮小／Shift+Z 全体／' +
@@ -149,8 +156,9 @@ export class Editor {
       caps: h('tbody'),
       save: button('保存', 'Ctrl(⌘)+S', () => void this.save(), 'primary'),
       export: button(
-        'XML に書き出す',
-        'いまのカットと字幕を、Filmora・Premiere 用の XML（_studio.xml）と studio.srt に書き出し直す（保存していない変更は先に保存する）',
+        'Premiere に書き出す',
+        'いまのカットと字幕から Premiere のプロジェクト（.prproj）を作る。XML（_studio.xml）と studio.srt も書き出し直す' +
+          '（保存していない変更は先に保存する。Premiere を開いておく）',
         () => void this.export(),
       ),
     };
@@ -849,8 +857,51 @@ export class Editor {
       document.body.classList.remove('busy');
     }
     const files = (out.files ?? []).map((f) => `・${f}`).join('\n');
-    await this.dialogs.info('書き出しました', `版 ${out.revision} から書き出しました。\n${files}\n\n場所：${out.dir ?? ''}`);
+    const where = `場所：${out.dir ?? ''}`;
+    if (!out.premiere) {
+      // Premiere の依頼を出さない前の serve
+      await this.dialogs.info('書き出しました', `版 ${out.revision} から書き出しました。\n${files}\n\n${where}`);
+      return true;
+    }
+    const job = await this.waitPremiere(out.premiere);
+    const prproj = baseName(job.project);
+    if (job.status === 'done') {
+      await this.dialogs.info('Premiere のプロジェクトを作りました', `版 ${out.revision} から作りました。\n${job.message || prproj}\n\n${where}`);
+    } else if (job.status === 'error') {
+      await this.dialogs.warn('Premiere のプロジェクトを作れませんでした', `${job.message}\n\nXML と字幕は書き出してあります。\n${files}\n\n${where}`);
+    } else {
+      await this.dialogs.info(
+        'XML と字幕を書き出しました',
+        `Premiere からの返事がまだありません。Premiere を開くと（ウィンドウ ▸ エクステンション ▸ movie-editer）、` +
+          `${prproj} が作られます。\n${files}\n\n${where}`,
+      );
+    }
     return true;
+  }
+
+  /** Premiere のパネルがプロジェクトを作り終えるのを待つ（終わらなければ、最後に見た依頼を返す） */
+  private async waitPremiere(first: PremiereJob): Promise<PremiereJob> {
+    const wait = this.opts.premiereWaitMs ?? PREMIERE_WAIT_MS;
+    const every = this.opts.premierePollMs ?? PREMIERE_POLL_MS;
+    const label = this.ui.export.textContent;
+    let job = first;
+    this.ui.export.disabled = true;
+    this.ui.export.textContent = 'Premiere で作成中…';
+    try {
+      for (let t = 0; t < wait && (job.status === 'queued' || job.status === 'running'); t += every) {
+        await new Promise((r) => setTimeout(r, every));
+        try {
+          const now = (await this.api.topic(this.name, this.topic)).premiere;
+          if (now && now.revision === first.revision) job = now;
+        } catch (e) {
+          if (!(e instanceof ApiError)) throw e;
+        }
+      }
+    } finally {
+      this.ui.export.disabled = false;
+      this.ui.export.textContent = label;
+    }
+    return job;
   }
 }
 

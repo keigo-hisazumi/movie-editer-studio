@@ -8,10 +8,10 @@ afterEach(() => {
   open = [];
 });
 
-function make(fake = new FakeServe()) {
+function make(fake = new FakeServe(), opts: { premiereWaitMs?: number } = {}) {
   const dialogs = new FakeDialogs();
   const player = new FakePlayer();
-  const e = new Editor(fake.api(), '20261017', 2, structuredClone(TOPIC), { fps: 30, peaks: new Array(900).fill(100) }, { player, dialogs });
+  const e = new Editor(fake.api(), '20261017', 2, structuredClone(TOPIC), { fps: 30, peaks: new Array(900).fill(100) }, { player, dialogs, premierePollMs: 1, premiereWaitMs: opts.premiereWaitMs ?? 50 });
   document.body.append(e.el);
   e.timeline.resize(1100, 240);
   open.push(e);
@@ -252,13 +252,44 @@ test('一覧の字幕はクリックで選ぶだけ。直し始めるのはダ�
   expect(e.editingRow).toBe(1);
 });
 
-test('「XML に書き出す」：保存していない変更を先に保存してから、serve に書き出しを頼む', async () => {
+test('「Premiere に書き出す」：前の serve（Premiere の依頼が無い）では、XML と字幕を書き出して知らせるだけ', async () => {
   const { e, fake, dialogs } = make();
   e.deleteClip('keep', 1);
   expect(await e.export()).toBe(true);
   expect(fake.saved.length).toBe(1);
   expect(fake.exported).toEqual([2]);
   expect(dialogs.shown.at(-1)![2]).toContain('studio.srt');
+});
+
+test('「Premiere に書き出す」：パネルがプロジェクトを作り終えるまで待って知らせる', async () => {
+  const fake = new FakeServe();
+  fake.premiere = ['queued', 'running', 'done'];
+  fake.premiereMessage = 'プロジェクトを作りました: 20261017_topic_02_r0001.prproj';
+  const { e, dialogs } = make(fake);
+  expect(await e.export()).toBe(true);
+  const [kind, title, msg] = dialogs.shown.at(-1)!;
+  expect([kind, title]).toEqual(['info', 'Premiere のプロジェクトを作りました']);
+  expect(msg).toContain('r0001.prproj');
+  const btn = [...e.el.querySelectorAll('button')].find((b) => b.title.includes('.prproj'))!;
+  expect(btn.disabled).toBe(false);
+  expect(btn.textContent).toBe('Premiere に書き出す');
+});
+
+test('「Premiere に書き出す」：作れなかった・Premiere が開いていないときも知らせる', async () => {
+  const fake = new FakeServe();
+  fake.premiere = ['running', 'error'];
+  fake.premiereMessage = 'XML を読み込めませんでした';
+  let { e, dialogs } = make(fake);
+  await e.export();
+  expect(dialogs.shown.at(-1)!.slice(0, 2)).toEqual(['warn', 'Premiere のプロジェクトを作れませんでした']);
+  expect(dialogs.shown.at(-1)![2]).toContain('XML を読み込めませんでした');
+
+  const idle = new FakeServe();
+  idle.premiere = ['queued'];
+  ({ e, dialogs } = make(idle, { premiereWaitMs: 5 }));
+  await e.export();
+  expect(dialogs.shown.at(-1)!.slice(0, 2)).toEqual(['info', 'XML と字幕を書き出しました']);
+  expect(dialogs.shown.at(-1)![2]).toContain('20261017_topic_02_r0001.prproj');
 });
 
 test('再生中・フレーム送り・タイムラインのクリックで、字幕の一覧の選択がいまの位置の字幕に付いていく', () => {

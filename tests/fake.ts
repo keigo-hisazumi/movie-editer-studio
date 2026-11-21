@@ -41,6 +41,9 @@ export class FakeServe {
   exported: number[] = [];
   revision = 1;
   calls: { url: string; method: string }[] = [];
+  /** 書き出しの後に GET topic で返す Premiere の依頼の状態（順に。null なら依頼を出さない前の serve） */
+  premiere: ('queued' | 'running' | 'done' | 'error')[] | null = null;
+  premiereMessage = '';
 
   bytesUrls: string[] = [];
   bytes: BytesTransport = async (url) => {
@@ -56,7 +59,10 @@ export class FakeServe {
       return json(200, [
         { name: '20261017', video: false, proxy: false, peaks: false, topics: [{ topic: 2, title: 'ホラーで叫ぶ', revision: 1, by: 'ai', step: 'draft' }] },
       ]);
-    if (method === 'GET' && path === '/api/v/20261017/t/2') return json(200, TOPIC);
+    if (method === 'GET' && path === '/api/v/20261017/t/2') {
+      const status = this.premiere && this.premiere.length > 1 ? this.premiere.shift()! : this.premiere?.[0];
+      return json(200, { ...TOPIC, premiere: status ? this.job(status) : null });
+    }
     if (method === 'PUT') {
       const b = JSON.parse(body!);
       if (b.base_revision !== this.revision) return json(409, { error: `いまは版 ${this.revision} です` });
@@ -66,10 +72,20 @@ export class FakeServe {
     }
     if (method === 'POST' && path === '/api/v/20261017/t/2/export') {
       this.exported.push(this.revision);
-      return json(200, { revision: this.revision, files: ['20261017_topic_02_studio.xml', 'studio.srt'], dir: '/out/20261017/topic_02' });
+      return json(200, {
+        revision: this.revision,
+        files: ['20261017_topic_02_studio.xml', 'studio.srt'],
+        dir: '/out/20261017/topic_02',
+        ...(this.premiere ? { premiere: this.job('queued') } : {}),
+      });
     }
     return json(404, { error: '見つかりません' });
   };
+
+  job(status: 'queued' | 'running' | 'done' | 'error') {
+    const project = `/out/20261017/topic_02/20261017_topic_02_r${String(this.revision).padStart(4, '0')}.prproj`;
+    return { status, revision: this.revision, project, message: status === 'queued' ? '' : this.premiereMessage };
+  }
 
   api(base = 'http://127.0.0.1:8765'): Api {
     return new Api(base, this.transport, this.bytes);
