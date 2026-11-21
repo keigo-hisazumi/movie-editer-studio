@@ -158,7 +158,8 @@ export class Editor {
       short: button(
         'ショートを作る',
         'いまのカットと字幕から、縦型レイアウト・字幕・BGM・効果音・画像・画面の文字を付けたショートを' +
-          ' Premiere のプロジェクト（_short_rNNNN.prproj）として作る（BGM・効果音・画像は cuts.yaml のもの。' +
+          ' Premiere のプロジェクト（_short_rNNNN.prproj）として作る（字幕・画面の文字は画像。BGM・効果音・画像は cuts.yaml のもので、' +
+          '効果音・画像がまだ無ければ Claude Code が決める（数分かかる）。' +
           '保存していない変更は先に保存する。Premiere を開いておく）',
         () => void this.makeShort(),
       ),
@@ -847,7 +848,7 @@ export class Editor {
     document.body.classList.add('busy');
     const label = this.ui.short.textContent;
     this.ui.short.disabled = true;
-    this.ui.short.textContent = 'ショートを作成中…';
+    this.ui.short.textContent = 'ショートを作成中…（効果音・画像を決めるときは数分）';
     let out;
     try {
       out = await this.api.short(this.name, this.topic);
@@ -864,7 +865,9 @@ export class Editor {
     }
     const files = (out.files ?? []).map((f) => `・${f}`).join('\n');
     const where = `場所：${out.dir ?? ''}`;
-    const head = `版 ${out.revision} から ${out.duration.toFixed(1)} 秒のショートを作りました。`;
+    const head =
+      `版 ${out.revision} から ${out.duration.toFixed(1)} 秒のショートを作りました。` +
+      (out.decided ? '\n効果音・画像は Claude Code が決めました（cuts.yaml）。' : '');
     if (!out.premiere) {
       await this.dialogs.info('ショートを作りました', `${head}\n${files}\n\n${where}`);
       return true;
