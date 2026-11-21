@@ -1,0 +1,537 @@
+/* 動画編集ソフトのような暗い画面 */
+:root {
+  color-scheme: dark;
+  --bg: #1b1c1f;
+  --panel: #232428;
+  --panel2: #2b2c31;
+  --line: #3a3b40;
+  --text: #e3e4e8;
+  --muted: #8d9098;
+  --accent: #1d93ab;
+  --warn: #e0a040;
+  --error: #ff6b6b;
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic UI', 'Segoe UI', sans-serif;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body.busy,
+body.busy * {
+  cursor: progress !important;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.mono {
+  font-family: Menlo, Consolas, monospace;
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.grow {
+  flex: 1;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button:hover {
+  background: #34353b;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+input {
+  font: inherit;
+  color: var(--text);
+  background: #141518;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 5px 7px;
+}
+
+/* ---------------------------------------------------------------- 一覧 */
+
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  padding: 14px;
+}
+
+.settings {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.settings .row {
+  display: flex;
+  gap: 6px;
+}
+
+.settings .row input {
+  flex: 1;
+}
+
+.status.error {
+  color: var(--error);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.topics {
+  flex: 1;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 0;
+  outline: none;
+}
+
+.topics .video {
+  padding: 8px 12px 4px;
+  display: flex;
+  gap: 12px;
+}
+
+.topics .topic {
+  display: grid;
+  grid-template-columns: 90px 1fr max-content;
+  gap: 12px;
+  padding: 5px 12px 5px 28px;
+  cursor: default;
+  user-select: none;
+}
+
+.topics .topic:hover {
+  background: #2c2d33;
+}
+
+.topics .topic.sel {
+  background: #24525d;
+}
+
+.topics .topic.none {
+  color: var(--muted);
+}
+
+.topics .state {
+  color: var(--muted);
+}
+
+.topics .empty,
+.hint {
+  color: var(--muted);
+  padding: 8px 12px;
+}
+
+/* ---------------------------------------------------------------- 編集画面 */
+
+.editor {
+  display: grid;
+  grid-template-rows: auto minmax(200px, 1fr) minmax(180px, 34%);
+  height: 100%;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bar .rev {
+  color: var(--muted);
+}
+
+.upper {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(320px, 1.1fr);
+  min-height: 0;
+}
+
+.left,
+.right {
+  contain: strict;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 10px;
+  gap: 6px;
+}
+
+.right {
+  border-left: 1px solid var(--line);
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #000;
+  overflow: hidden;
+}
+
+.stage .player {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* 区間の切れ目で入れ替える 2 つの <video>（表を上に重ね、裏で次の区間の頭を用意しておく） */
+.stage .video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.stage .video.front {
+  z-index: 1;
+}
+
+/* 動画の上に重ねる字幕（白い文字に黒い縁取り） */
+.stage .sub {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  font-weight: bold;
+  color: #fff;
+  -webkit-text-stroke-color: #000;
+  paint-order: stroke fill;
+  stroke-linejoin: round;
+  pointer-events: none;
+  z-index: 2; /* 2 つ重ねた動画（表は z-index: 1）より上に */
+}
+
+.stage .msg {
+  position: absolute;
+  inset: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: pre-wrap;
+  color: #ddd;
+  user-select: text;
+  z-index: 2;
+}
+
+.ctl {
+  contain: layout;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pos {
+  contain: layout paint;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tc {
+  display: inline-block;
+  min-width: 22ch;
+}
+
+.pos,
+.summary {
+  color: var(--muted);
+}
+
+.summary b {
+  color: var(--text);
+}
+
+.tools {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.caps-box {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  position: relative;
+}
+
+table.caps {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.caps th:nth-child(1) {
+  width: 112px;
+}
+
+.caps th:nth-child(3) {
+  width: 64px;
+}
+
+.caps th:nth-child(4) {
+  width: 120px;
+}
+
+.caps th {
+  position: sticky;
+  top: 0;
+  background: var(--panel2);
+  color: var(--muted);
+  font-weight: normal;
+  text-align: left;
+  padding: 4px 8px;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.caps td {
+  padding: 4px 8px;
+  border-top: 1px solid #2d2e33;
+  vertical-align: middle;
+}
+
+.caps tr {
+  height: 48px;
+  cursor: default;
+}
+
+.caps tr.sel {
+  background: #24525d;
+}
+
+.caps .at {
+  white-space: pre;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.caps tr.cap-part .at {
+  color: var(--warn);
+}
+
+.caps .text {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.caps tr.cap-out .text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.caps .count {
+  color: var(--muted);
+  text-align: right;
+}
+
+.caps .count.over {
+  color: var(--warn);
+  font-weight: bold;
+}
+
+.caps .ops {
+  white-space: nowrap;
+}
+
+.caps .ops button {
+  padding: 2px 7px;
+  margin-left: 2px;
+}
+
+.cap-input {
+  width: 100%;
+  font-size: 14px;
+}
+
+.lower {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  min-height: 0;
+}
+
+.help {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 3px 10px 6px;
+}
+
+/* ---------------------------------------------------------------- タイムライン */
+
+.track {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #1b1c1f;
+}
+
+.track-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  contain: strict;
+}
+
+.track-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* いまの位置の線（再生中は transform だけを変える。canvas は描き直さない） */
+.track-heads {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -7px;
+  width: 14px;
+  will-change: transform;
+}
+
+.playhead::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 0;
+  left: 6.25px;
+  width: 1.5px;
+  background: #ff5a5f;
+}
+
+.playhead::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 1px;
+  width: 12px;
+  height: 14px;
+  background: #ff5a5f;
+  clip-path: polygon(0 0, 100% 0, 100% 57%, 50% 100%, 0 57%);
+}
+
+.track-ctl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 34px;
+}
+
+.track-ctl button {
+  width: 44px;
+  padding: 1px 0;
+}
+
+.track-bar {
+  flex: 1;
+}
+
+.track-zoom {
+  width: 160px;
+}
+
+/* ---------------------------------------------------------------- 知らせ */
+
+.modal-back {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 18px;
+  min-width: 360px;
+  max-width: min(640px, 90vw);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 50%);
+}
+
+.modal h2 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+
+.modal-error h2 {
+  color: var(--error);
+}
+
+.modal-msg {
+  white-space: pre-wrap;
+  user-select: text;
+  max-height: 50vh;
+  overflow: auto;
+}
+
+.modal pre {
+  max-height: 30vh;
+  overflow: auto;
+  font-size: 11px;
+  user-select: text;
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}

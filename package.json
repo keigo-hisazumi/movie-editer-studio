@@ -1,0 +1,26 @@
+{
+  "name": "movie-editer-studio",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.0",
+    "@tauri-apps/plugin-dialog": "^2.8.4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.0",
+    "ajv": "^8.17.1",
+    "jsdom": "^31.0.1",
+    "movie-editer-schema": "github:keigo-hisazumi/movie-editer-schema#7809fb2cfe97c65c888f4a8f76e6f1fbdc715c2a",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}

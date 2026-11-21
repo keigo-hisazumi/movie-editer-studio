@@ -1,0 +1,28 @@
+[package]
+name = "movie-editer-studio"
+version = "0.2.0"
+description = "movie-editer の AI が作ったカットと字幕を、人がフレーム単位で直す Mac・Windows のアプリ"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+name = "studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# serve は LAN の中の http だけなので TLS は入れない
+reqwest = { version = "0.12", default-features = false }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
