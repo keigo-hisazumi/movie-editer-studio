@@ -54,6 +54,8 @@ export interface TopicData {
   segments: Segment[];
   /** audio：区間の切れ目で途切れずに鳴らす音声（WAV。前の serve には無い） */
   media: { video: string | null; audio?: string | null; 'proxy.mp4': string | null; 'peaks.json': string | null };
+  /** Premiere のプロジェクトの依頼（前の serve には無い） */
+  premiere?: PremiereJob | null;
 }
 
 export interface Peaks {
@@ -63,10 +65,21 @@ export interface Peaks {
   peaks: number[];
 }
 
+/** Premiere のプロジェクトを作る依頼（serve の topic_XX/premiere.json。作るのは movie-editer-premiere のパネル） */
+export interface PremiereJob {
+  status: 'queued' | 'running' | 'done' | 'error';
+  revision: number;
+  /** 作る .prproj のパス */
+  project: string;
+  message: string;
+}
+
 export interface ExportResult {
   revision: number;
   files: string[];
   dir: string;
+  /** 前の serve には無い */
+  premiere?: PremiereJob | null;
 }
 
 // Python の urllib.parse.quote(url, safe=":/?#[]@!$&'()*+,;=%~") と同じ（ASCII 以外と空白などを %XX にする）
