@@ -110,7 +110,7 @@ export class Editor {
     capsBox: HTMLElement;
     caps: HTMLTableSectionElement;
     save: HTMLButtonElement;
-    export: HTMLButtonElement;
+    short: HTMLButtonElement;
   };
 
   constructor(
@@ -155,11 +155,12 @@ export class Editor {
       capsBox: h('div', { className: 'caps-box' }),
       caps: h('tbody'),
       save: button('保存', 'Ctrl(⌘)+S', () => void this.save(), 'primary'),
-      export: button(
-        'Premiere に書き出す',
-        'いまのカットと字幕から Premiere のプロジェクト（.prproj）を作る。XML（_studio.xml）と studio.srt も書き出し直す' +
-          '（保存していない変更は先に保存する。Premiere を開いておく）',
-        () => void this.export(),
+      short: button(
+        'ショートを作る',
+        'いまのカットと字幕から、縦型レイアウト・字幕・BGM・効果音・画像・画面の文字を付けたショートを' +
+          ' Premiere のプロジェクト（_short_rNNNN.prproj）として作る（BGM・効果音・画像は cuts.yaml のもの。' +
+          '保存していない変更は先に保存する。Premiere を開いておく）',
+        () => void this.makeShort(),
       ),
     };
     this.ui = ui;
@@ -174,7 +175,7 @@ export class Editor {
       ui.rev,
       button('取り消し', 'Ctrl(⌘)+Z', () => this.doUndo()),
       ui.save,
-      ui.export,
+      ui.short,
     );
 
     // 左：動画と再生
@@ -840,39 +841,44 @@ export class Editor {
     return true;
   }
 
-  /** 保存した版から XML と字幕を書き出し直す（serve が topic_XX/ に書く） */
-  async export(): Promise<boolean> {
+  /** 保存した版から、ショートを Premiere のプロジェクトとして作る（serve がショートを作り、Premiere のパネルがプロジェクトにする） */
+  async makeShort(): Promise<boolean> {
     if (this.dirty && !(await this.save())) return false;
     document.body.classList.add('busy');
+    const label = this.ui.short.textContent;
+    this.ui.short.disabled = true;
+    this.ui.short.textContent = 'ショートを作成中…';
     let out;
     try {
-      out = await this.api.export(this.name, this.topic);
+      out = await this.api.short(this.name, this.topic);
     } catch (e) {
       if (!(e instanceof ApiError)) throw e;
       let msg = e.message;
-      if (e.status === 501 || (e.status === 404 && msg === '見つかりません')) msg += '（movie-editer を新しくして serve を起動し直してください）'; // 書き出しの API が無い前の serve
-      await this.dialogs.warn('書き出せませんでした', msg);
+      if (e.status === 501 || (e.status === 404 && msg === '見つかりません')) msg += '（movie-editer を新しくして serve を起動し直してください）'; // ショートの API が無い前の serve
+      await this.dialogs.warn('ショートを作れませんでした', msg);
       return false;
     } finally {
       document.body.classList.remove('busy');
+      this.ui.short.disabled = false;
+      this.ui.short.textContent = label;
     }
     const files = (out.files ?? []).map((f) => `・${f}`).join('\n');
     const where = `場所：${out.dir ?? ''}`;
+    const head = `版 ${out.revision} から ${out.duration.toFixed(1)} 秒のショートを作りました。`;
     if (!out.premiere) {
-      // Premiere の依頼を出さない前の serve
-      await this.dialogs.info('書き出しました', `版 ${out.revision} から書き出しました。\n${files}\n\n${where}`);
+      await this.dialogs.info('ショートを作りました', `${head}\n${files}\n\n${where}`);
       return true;
     }
     const job = await this.waitPremiere(out.premiere);
     const prproj = baseName(job.project);
     if (job.status === 'done') {
-      await this.dialogs.info('Premiere のプロジェクトを作りました', `版 ${out.revision} から作りました。\n${job.message || prproj}\n\n${where}`);
+      await this.dialogs.info('Premiere のプロジェクトを作りました', `${head}\n${job.message || prproj}\n\n${where}`);
     } else if (job.status === 'error') {
-      await this.dialogs.warn('Premiere のプロジェクトを作れませんでした', `${job.message}\n\nXML と字幕は書き出してあります。\n${files}\n\n${where}`);
+      await this.dialogs.warn('Premiere のプロジェクトを作れませんでした', `${job.message}\n\nショートの XML と字幕は作ってあります。\n${files}\n\n${where}`);
     } else {
       await this.dialogs.info(
-        'XML と字幕を書き出しました',
-        `Premiere からの返事がまだありません。Premiere を開くと（ウィンドウ ▸ エクステンション ▸ movie-editer）、` +
+        'ショートの XML と字幕を作りました',
+        `${head}\nPremiere からの返事がまだありません。Premiere を開くと（ウィンドウ ▸ エクステンション ▸ movie-editer）、` +
           `${prproj} が作られます。\n${files}\n\n${where}`,
       );
     }
@@ -883,10 +889,10 @@ export class Editor {
   private async waitPremiere(first: PremiereJob): Promise<PremiereJob> {
     const wait = this.opts.premiereWaitMs ?? PREMIERE_WAIT_MS;
     const every = this.opts.premierePollMs ?? PREMIERE_POLL_MS;
-    const label = this.ui.export.textContent;
+    const label = this.ui.short.textContent;
     let job = first;
-    this.ui.export.disabled = true;
-    this.ui.export.textContent = 'Premiere で作成中…';
+    this.ui.short.disabled = true;
+    this.ui.short.textContent = 'Premiere で作成中…';
     try {
       for (let t = 0; t < wait && (job.status === 'queued' || job.status === 'running'); t += every) {
         await new Promise((r) => setTimeout(r, every));
@@ -898,8 +904,8 @@ export class Editor {
         }
       }
     } finally {
-      this.ui.export.disabled = false;
-      this.ui.export.textContent = label;
+      this.ui.short.disabled = false;
+      this.ui.short.textContent = label;
     }
     return job;
   }

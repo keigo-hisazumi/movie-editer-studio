@@ -39,6 +39,7 @@ export const TOPIC: TopicData = {
 export class FakeServe {
   saved: { base_revision: number; doc: EditDoc }[] = [];
   exported: number[] = [];
+  shorts: number[] = [];
   revision = 1;
   calls: { url: string; method: string }[] = [];
   /** 書き出しの後に GET topic で返す Premiere の依頼の状態（順に。null なら依頼を出さない前の serve） */
@@ -70,6 +71,16 @@ export class FakeServe {
       this.saved.push(b);
       return json(200, { ...b.doc, revision: this.revision });
     }
+    if (method === 'POST' && path === '/api/v/20261017/t/2/short') {
+      this.shorts.push(this.revision);
+      return json(200, {
+        revision: this.revision,
+        duration: 41.27,
+        files: ['20261017_topic_02_short_Edit.xml', 'edit.srt', 'texts.png', 'memo.json'],
+        dir: '/out/20261017/topic_02',
+        ...(this.premiere ? { premiere: this.job('queued') } : {}),
+      });
+    }
     if (method === 'POST' && path === '/api/v/20261017/t/2/export') {
       this.exported.push(this.revision);
       return json(200, {
@@ -83,7 +94,7 @@ export class FakeServe {
   };
 
   job(status: 'queued' | 'running' | 'done' | 'error') {
-    const project = `/out/20261017/topic_02/20261017_topic_02_r${String(this.revision).padStart(4, '0')}.prproj`;
+    const project = `/out/20261017/topic_02/20261017_topic_02_short_r${String(this.revision).padStart(4, '0')}.prproj`;
     return { status, revision: this.revision, project, message: status === 'queued' ? '' : this.premiereMessage };
   }
 
