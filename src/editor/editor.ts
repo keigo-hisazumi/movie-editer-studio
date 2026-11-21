@@ -158,7 +158,7 @@ export class Editor {
       short: button(
         'ショートを作る',
         'いまのカットと字幕から、縦型レイアウト・字幕・BGM・効果音・画像・画面の文字を付けたショートを' +
-          ' Premiere のプロジェクト（_short_rNNNN.prproj）として作る（字幕・画面の文字は Premiere で編集できるテキスト。BGM・効果音・画像は cuts.yaml のもので、' +
+          ' Premiere のプロジェクト（_short_rNNNN.prproj）として作る（字幕は Premiere で編集できる字幕トラック、画面の文字は自分で作った型（overlay.prproj）を重ねる。BGM・効果音・画像は cuts.yaml のもので、' +
           '効果音・画像がまだ無ければ Claude Code が決める（数分かかる）。' +
           '保存していない変更は先に保存する。Premiere を開いておく）',
         () => void this.makeShort(),
