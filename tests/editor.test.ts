@@ -425,3 +425,20 @@ test('動画の場所：確認用の動画があればそちら、無ければ�
   const { e } = make();
   expect(e.message).toContain('元動画が見つかりません');
 });
+
+test('字幕を直している間に「分ける」：入力欄のカーソルの所で文字を左右に分ける（位置が字幕の頭でも）', () => {
+  const { e } = make();
+  const c = e.captions[0];
+  const input = e.el.querySelectorAll('tbody tr')[0].querySelector<HTMLInputElement>('.cap-input')!;
+  input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); // 字幕の頭へ動く
+  input.focus();
+  expect(e.src).toBe(c.start);
+  input.setSelectionRange(2, 2);
+  input.dispatchEvent(new Event('keyup'));
+  const btn = e.el.querySelectorAll('tbody tr')[0].querySelector<HTMLButtonElement>('.ops button')!;
+  btn.click();
+  expect(e.captions.slice(0, 2).map((x) => x.text)).toEqual(['えっ', '待って']);
+  expect(e.captions[0].start).toBe(c.start);
+  expect(e.captions[1].start).toBeGreaterThan(c.start);
+  expect(e.captions[1].end).toBe(c.end);
+});

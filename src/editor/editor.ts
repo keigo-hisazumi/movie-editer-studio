@@ -637,8 +637,21 @@ export class Editor {
     const i = this.target();
     if (i < 0) return;
     const pos = this.caret && this.caret[0] === i ? this.caret[1] : null;
-    const [caps, j] = tl.splitCaption(this.captions, i, this.src, pos);
+    const [caps, j] = tl.splitCaption(this.captions, i, this.splitAt(i, pos), pos);
     if (j >= 0) this.changeCaps(caps, j);
+  }
+
+  /**
+   * 字幕 i を分ける時刻（元動画のフレーム）。いまの位置が字幕の中ならそこ。
+   * 文字を直していた欄のカーソルの位置（pos 文字目）があって、いまの位置が字幕の外か頭なら（入力欄をクリックすると頭へ動くため）、
+   * 字幕の長さを文字数の比で分けた所
+   */
+  private splitAt(i: number, pos: number | null): number {
+    const c = this.captions[i];
+    if (pos === null || (this.src > c.start && this.src < c.end)) return this.src;
+    const n = Array.from(c.text).length;
+    const at = c.start + Math.round(((c.end - c.start) * (n ? pos : 1)) / (n || 2));
+    return Math.max(c.start + 1, Math.min(c.end - 1, at));
   }
 
   capMerge(): void {
