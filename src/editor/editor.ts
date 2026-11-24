@@ -267,7 +267,8 @@ export class Editor {
 
   // ------------------------------------------------------------ 表示
 
-  render(): void {
+  /** caps が false なら字幕の一覧は作り直さない（入力欄の間を移るクリックの最中に作り直すと、移った先の入力欄が消えるため） */
+  render(caps = true): void {
     const k = this.keeps;
     this.ui.rev.textContent = `版 ${this.base}${this.dirty ? '（未保存の変更あり）' : ''}`;
     this.ui.mode.textContent = this.mode === 'short' ? '表示：ショート' : '表示：元動画';
@@ -275,7 +276,7 @@ export class Editor {
     this.ui.summary.innerHTML =
       `ショートの長さ <b>${(tl.totalFrames(k) / this.fps).toFixed(1)} 秒</b>（区間 ${k.length} 個）` +
       `　字幕 ${this.captions.length} 個（ショートに出るもの ${shown} 個）`;
-    this.fillCaps();
+    if (caps) this.fillCaps();
     this.updatePos();
     this.opts.onDirty?.(this.dirty);
   }
@@ -294,7 +295,9 @@ export class Editor {
     const at = pieces.length ? `${timecode(pieces[0][0], this.fps)}\n${timecode(pieces[pieces.length - 1][1], this.fps)}` : '外した所';
     const n = Array.from(c.text).length;
     const tr = h('tr', { className: `cap-${state}` });
-    const text = h('td', { className: 'text', textContent: c.text });
+    // 文字はいつも入力欄に出し、クリック 1 回で直し始める
+    const input = h('input', { type: 'text', value: c.text, className: 'cap-input' });
+    const text = h('td', { className: 'text' }, input);
     const ops = h(
       'td',
       { className: 'ops' },
@@ -302,14 +305,17 @@ export class Editor {
       button('消す', '消す（Delete）', () => this.rowOp(i, () => this.capDel())),
     );
     tr.append(h('td', { className: 'at mono', textContent: at }), text, h('td', { className: `count${n > MAX_CHARS ? ' over' : ''}`, textContent: String(n) }), ops);
-    // クリックで選ぶだけ。文字を直し始めるのはダブルクリックのときだけ
+    // 入力欄をクリック：その字幕を選んで直し始める（入力欄にカーソルが入る）。入力欄の外（時刻・文字数）のクリックは選ぶだけ
     tr.addEventListener('mousedown', (e) => {
-      if (this.editingRow === i || (e.target as HTMLElement).closest('.ops')) return;
+      const target = e.target as HTMLElement;
+      if (target.closest('.ops')) return;
+      const onInput = target === input;
+      if (onInput && this.editingRow === i) return; // 入力中の欄の中でカーソルを動かす
       if (this.editingRow !== null) this.finishEdit(true);
-      e.preventDefault();
+      if (!onInput) e.preventDefault();
       this.clickCap(i);
     });
-    text.addEventListener('dblclick', () => this.startEdit(i));
+    this.bindInput(input, i);
     return tr;
   }
 
@@ -663,35 +669,37 @@ export class Editor {
     }
     this.doc.captions = this.captions.map((c, j) => (j === i ? { ...c, text } : c));
     this.dirty = true;
-    const row = this.ui.caps.rows[i];
-    if (row) {
-      const n = Array.from(text).length;
-      const count = row.cells[2];
-      count.textContent = String(n);
-      count.classList.toggle('over', n > MAX_CHARS);
-    }
+    this.setCount(i, text);
     this.ui.rev.textContent = `版 ${this.base}（未保存の変更あり）`;
     this.opts.onDirty?.(true);
     this.updatePos();
   }
 
-  /** 一覧の i 行目の字幕の文字を直し始める（入力欄を出す） */
-  startEdit(i: number): void {
-    if (this.editingRow !== null) this.finishEdit(true);
-    const row = this.ui.caps.rows[i];
-    if (!row) return;
-    this.cap = i;
-    this.markSelected();
-    this.editingRow = i;
-    this.typing = false;
-    this.editStart = { caps: this.captions, undo: this.undo.length, dirty: this.dirty };
-    const cell = row.cells[1];
-    const input = h('input', { type: 'text', value: this.captions[i].text, className: 'cap-input' });
-    cell.replaceChildren(input);
+  /** 一覧の i 行目の文字数 */
+  private setCount(i: number, text: string): void {
+    const count = this.ui.caps.rows[i]?.cells[2];
+    if (!count) return;
+    const n = Array.from(text).length;
+    count.textContent = String(n);
+    count.classList.toggle('over', n > MAX_CHARS);
+  }
+
+  /** 一覧の i 行目の入力欄 */
+  private capInput(i: number): HTMLInputElement | null {
+    return this.ui.caps.rows[i]?.querySelector<HTMLInputElement>('.cap-input') ?? null;
+  }
+
+  /** 入力欄の操作（入力欄にカーソルが入ったら直し始め、出たら確定する） */
+  private bindInput(input: HTMLInputElement, i: number): void {
     const caret = (): void => {
-      this.caret = [i, Array.from(input.value.slice(0, input.selectionStart ?? input.value.length)).length];
+      if (this.editingRow === i) this.caret = [i, Array.from(input.value.slice(0, input.selectionStart ?? input.value.length)).length];
     };
+    input.addEventListener('focus', () => {
+      this.beginEdit(i);
+      caret();
+    });
     input.addEventListener('input', () => {
+      if (this.editingRow !== i) this.beginEdit(i);
       this.setCapText(i, input.value);
       caret();
     });
@@ -709,9 +717,27 @@ export class Editor {
     input.addEventListener('blur', () => {
       if (this.editingRow === i) this.finishEdit(true);
     });
+  }
+
+  /** i 行目の字幕の文字を直し始めた（入力欄にカーソルが入った）。Esc で戻せるよう直す前を覚える */
+  private beginEdit(i: number): void {
+    if (this.editingRow === i) return;
+    if (this.editingRow !== null) this.finishEdit(true);
+    this.cap = i;
+    this.markSelected();
+    this.editingRow = i;
+    this.typing = false;
+    this.editStart = { caps: this.captions, undo: this.undo.length, dirty: this.dirty };
+  }
+
+  /** 一覧の i 行目の字幕の文字を直し始める（入力欄にカーソルを入れ、文字の終わりへ） */
+  startEdit(i: number): void {
+    const input = this.capInput(i);
+    if (!input) return;
+    this.beginEdit(i);
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
-    caret();
+    this.caret = [i, Array.from(input.value).length];
   }
 
   /** 文字を直し終える（commit が false なら直す前に戻す） */
@@ -719,18 +745,21 @@ export class Editor {
     const i = this.editingRow;
     if (i === null) return;
     this.editingRow = null;
+    const input = this.capInput(i);
     if (!commit && this.editStart) {
       this.doc.captions = this.editStart.caps;
       this.undo.length = this.editStart.undo;
       this.dirty = this.editStart.dirty;
+      if (input && this.captions[i]) {
+        input.value = this.captions[i].text;
+        this.setCount(i, input.value);
+      }
     }
     this.editStart = null;
     this.typing = false; // カーソルの位置（caret）は、この後の「分ける」で使うので残す
-    const row = this.ui.caps.rows[i];
-    if (row && this.captions[i]) row.replaceWith(this.capRow(this.captions[i], i));
+    if (input && document.activeElement === input) input.blur();
     this.markSelected();
-    (document.activeElement as HTMLElement | null)?.blur?.();
-    this.render();
+    this.render(false);
   }
 
   clickCap(row: number): void {

@@ -92,7 +92,7 @@ test('字幕：分ける・足す・消す・文字を直す', () => {
   press(e, 'Delete'); // 選んだ字幕（足した字幕）を消す
   expect(e.captions.length).toBe(3);
   e.startEdit(1);
-  const input = e.el.querySelector<HTMLInputElement>('.cap-input')!;
+  const input = e.el.querySelectorAll('tbody tr')[1].querySelector<HTMLInputElement>('.cap-input')!;
   input.value = '待ってよ';
   input.dispatchEvent(new Event('input'));
   expect(e.captions[1].text).toBe('待ってよ');
@@ -242,14 +242,30 @@ test('クリップをダブルクリックで選び、Delete で消す（映像�
   expect(e.editingRow).toBe(0);
 });
 
-test('一覧の字幕はクリックで選ぶだけ。直し始めるのはダブルクリックのときだけ', () => {
+test('一覧の字幕はいつも入力欄。クリック 1 回で選んで直し始め、ほかの行へ移れる', () => {
   const { e } = make();
-  const row = e.el.querySelectorAll('tbody tr')[1];
-  row.querySelector('.text')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  const rows = () => e.el.querySelectorAll('tbody tr');
+  expect(rows()[0].querySelector<HTMLInputElement>('.cap-input')!.value).toBe('えっ待って');
+  // 入力欄の外（文字数）をクリック：選ぶだけ
+  rows()[1].querySelector('.count')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
   expect(e.cap).toBe(1);
   expect(e.editingText()).toBe(false);
-  e.el.querySelectorAll('tbody tr')[1].querySelector('.text')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  // 入力欄をクリック：選んで直し始める
+  const input = rows()[1].querySelector<HTMLInputElement>('.cap-input')!;
+  input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  input.focus();
+  expect(e.cap).toBe(1);
   expect(e.editingRow).toBe(1);
+  input.value = '待ってよ';
+  input.dispatchEvent(new Event('input'));
+  // 別の行の入力欄をクリック：前の行を確定し、その行を直し始める（一覧は作り直さない）
+  const other = rows()[0].querySelector<HTMLInputElement>('.cap-input')!;
+  other.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  other.focus();
+  expect(e.captions[1].text).toBe('待ってよ');
+  expect(e.editingRow).toBe(0);
+  expect(other.isConnected).toBe(true);
+  expect(document.activeElement).toBe(other);
 });
 
 test('「ショートを作る」：前の serve（ショートの API が無い）では、movie-editer を新しくするよう知らせる', async () => {

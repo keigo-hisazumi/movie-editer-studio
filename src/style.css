@@ -383,6 +383,25 @@ table.caps {
 .cap-input {
   width: 100%;
   font-size: 14px;
+  background: transparent;
+  border-color: transparent;
+  cursor: text;
+}
+
+/* 枠はマウスを乗せた・入力中のときに出す（いつも入力欄だが、一覧として読みやすく） */
+.caps tr:hover .cap-input {
+  border-color: var(--line);
+}
+
+.cap-input:focus {
+  background: #141518;
+  border-color: var(--accent);
+  outline: none;
+}
+
+.caps tr.cap-out .cap-input {
+  color: var(--muted);
+  text-decoration: line-through;
 }
 
 .lower {
