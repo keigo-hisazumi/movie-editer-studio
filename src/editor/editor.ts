@@ -313,6 +313,7 @@ export class Editor {
       if (onInput && this.editingRow === i) return; // 入力中の欄の中でカーソルを動かす
       if (this.editingRow !== null) this.finishEdit(true);
       if (!onInput) e.preventDefault();
+      else if (i === this.cap) return; // 選んである字幕を直し始めるときは、位置（再生ヘッド）を動かさない
       this.clickCap(i);
     });
     this.bindInput(input, i);
@@ -571,7 +572,7 @@ export class Editor {
   /** タイムラインの字幕をダブルクリック：右上の一覧のその字幕の文字を直し始める */
   editCaption(i: number): void {
     if (i < 0 || i >= this.captions.length) return;
-    this.clickCap(i);
+    if (i !== this.cap) this.clickCap(i); // 選んである字幕なら位置を動かさない
     this.scrollToRow(i);
     this.startEdit(i);
   }
