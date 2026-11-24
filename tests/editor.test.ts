@@ -268,6 +268,22 @@ test('一覧の字幕はいつも入力欄。クリック 1 回で選んで直�
   expect(document.activeElement).toBe(other);
 });
 
+test('選んである字幕の入力欄をクリックしても、位置は字幕の頭へ動かさない', () => {
+  const { e } = make();
+  e.clickCap(1);
+  const start = e.captions[1].start;
+  e.seek(start + 5);
+  const input = e.el.querySelectorAll('tbody tr')[1].querySelector<HTMLInputElement>('.cap-input')!;
+  input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  input.focus();
+  expect(e.editingRow).toBe(1);
+  expect(e.src).toBe(start + 5);
+  // 選んでいない字幕なら、その字幕の頭へ
+  const other = e.el.querySelectorAll('tbody tr')[0].querySelector<HTMLInputElement>('.cap-input')!;
+  other.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  expect(e.src).toBe(e.captions[0].start);
+});
+
 test('「ショートを作る」：前の serve（ショートの API が無い）では、movie-editer を新しくするよう知らせる', async () => {
   const fake = new FakeServe();
   const orig = fake.transport;
@@ -408,4 +424,21 @@ test('動画の場所：確認用の動画があればそちら、無ければ�
   expect(player.source).toBe('http://127.0.0.1:8765/media/%E6%9C%9D/video');
   const { e } = make();
   expect(e.message).toContain('元動画が見つかりません');
+});
+
+test('字幕を直している間に「分ける」：入力欄のカーソルの所で文字を左右に分ける（位置が字幕の頭でも）', () => {
+  const { e } = make();
+  const c = e.captions[0];
+  const input = e.el.querySelectorAll('tbody tr')[0].querySelector<HTMLInputElement>('.cap-input')!;
+  input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); // 字幕の頭へ動く
+  input.focus();
+  expect(e.src).toBe(c.start);
+  input.setSelectionRange(2, 2);
+  input.dispatchEvent(new Event('keyup'));
+  const btn = e.el.querySelectorAll('tbody tr')[0].querySelector<HTMLButtonElement>('.ops button')!;
+  btn.click();
+  expect(e.captions.slice(0, 2).map((x) => x.text)).toEqual(['えっ', '待って']);
+  expect(e.captions[0].start).toBe(c.start);
+  expect(e.captions[1].start).toBeGreaterThan(c.start);
+  expect(e.captions[1].end).toBe(c.end);
 });

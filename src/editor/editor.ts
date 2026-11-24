@@ -313,6 +313,7 @@ export class Editor {
       if (onInput && this.editingRow === i) return; // 入力中の欄の中でカーソルを動かす
       if (this.editingRow !== null) this.finishEdit(true);
       if (!onInput) e.preventDefault();
+      else if (i === this.cap) return; // 選んである字幕を直し始めるときは、位置（再生ヘッド）を動かさない
       this.clickCap(i);
     });
     this.bindInput(input, i);
@@ -571,7 +572,7 @@ export class Editor {
   /** タイムラインの字幕をダブルクリック：右上の一覧のその字幕の文字を直し始める */
   editCaption(i: number): void {
     if (i < 0 || i >= this.captions.length) return;
-    this.clickCap(i);
+    if (i !== this.cap) this.clickCap(i); // 選んである字幕なら位置を動かさない
     this.scrollToRow(i);
     this.startEdit(i);
   }
@@ -636,8 +637,21 @@ export class Editor {
     const i = this.target();
     if (i < 0) return;
     const pos = this.caret && this.caret[0] === i ? this.caret[1] : null;
-    const [caps, j] = tl.splitCaption(this.captions, i, this.src, pos);
+    const [caps, j] = tl.splitCaption(this.captions, i, this.splitAt(i, pos), pos);
     if (j >= 0) this.changeCaps(caps, j);
+  }
+
+  /**
+   * 字幕 i を分ける時刻（元動画のフレーム）。いまの位置が字幕の中ならそこ。
+   * 文字を直していた欄のカーソルの位置（pos 文字目）があって、いまの位置が字幕の外か頭なら（入力欄をクリックすると頭へ動くため）、
+   * 字幕の長さを文字数の比で分けた所
+   */
+  private splitAt(i: number, pos: number | null): number {
+    const c = this.captions[i];
+    if (pos === null || (this.src > c.start && this.src < c.end)) return this.src;
+    const n = Array.from(c.text).length;
+    const at = c.start + Math.round(((c.end - c.start) * (n ? pos : 1)) / (n || 2));
+    return Math.max(c.start + 1, Math.min(c.end - 1, at));
   }
 
   capMerge(): void {
