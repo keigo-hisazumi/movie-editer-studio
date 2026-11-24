@@ -718,8 +718,20 @@ export class Editor {
       caret();
     });
     for (const ev of ['keyup', 'click', 'select'] as const) input.addEventListener(ev, caret);
+    // 日本語入力の変換を確定する Enter は、文字の確定だけにして直し終えない。
+    // macOS の WebView（Safari と同じ）では compositionend の後に確定の Enter の keydown が isComposing=false で届くので、
+    // keyCode 229 と、変換を終えた直後かどうかでも見分ける
+    let composing = false;
+    input.addEventListener('compositionstart', () => {
+      composing = true;
+    });
+    input.addEventListener('compositionend', () => {
+      setTimeout(() => {
+        composing = false;
+      }, 0);
+    });
     input.addEventListener('keydown', (e) => {
-      if (e.isComposing) return;
+      if (e.isComposing || composing || e.keyCode === 229) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         this.finishEdit(true);

@@ -442,3 +442,20 @@ test('字幕を直している間に「分ける」：入力欄のカーソル�
   expect(e.captions[1].start).toBeGreaterThan(c.start);
   expect(e.captions[1].end).toBe(c.end);
 });
+
+test('日本語入力の変換を確定する Enter では直し終えない（次の Enter で終える）', async () => {
+  const { e } = make();
+  e.startEdit(0);
+  const input = e.el.querySelectorAll('tbody tr')[0].querySelector<HTMLInputElement>('.cap-input')!;
+  input.dispatchEvent(new CompositionEvent('compositionstart'));
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true }));
+  expect(e.editingRow).toBe(0);
+  // Safari・WebView：compositionend の後に isComposing=false・keyCode 229 の Enter が届く
+  input.dispatchEvent(new CompositionEvent('compositionend'));
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229 }));
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); // 変換を終えた直後（同じタスクの中）
+  expect(e.editingRow).toBe(0);
+  await new Promise((r) => setTimeout(r, 0));
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+  expect(e.editingRow).toBe(null);
+});
